@@ -51,11 +51,9 @@
       <span class="pane-title">텍스트 블록</span>
       <span id="blockCount" class="count">—</span>
     </div>
+    <p id="status" class="status" hidden></p>
     <div id="blockList" class="blocklist">
-      <p class="placeholder">
-        이미지를 올리면 검출된 텍스트 블록이 여기에 표시됩니다.
-        <small>블록 검출과 OCR은 M2에서 붙습니다.</small>
-      </p>
+      <p class="placeholder">이미지를 올리면 검출된 텍스트 블록이 여기에 표시됩니다.</p>
     </div>
   </aside>
 
@@ -75,6 +73,9 @@
   </div>
 </footer>
 
+<script src="./vendor/tesseract/tesseract.min.js"></script>
+<script src="./js/detect.js"></script>
+<script src="./js/ocr.js"></script>
 <script src="./js/app.js"></script>
 </body>
 </html>

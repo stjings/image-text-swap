@@ -38,7 +38,10 @@ const CASES = [
     if (c.file) {
       await page.setInputFiles('#fileInput', path.join(ROOT, c.file));
       await page.waitForSelector('#viewport:not([hidden])');
-      await page.waitForFunction(() => window.__app.state.imageData !== null);
+      // 검출 + OCR 완료까지 기다린다. 최초 1회는 엔진·언어데이터 로딩이 있어 오래 걸린다.
+      await page.waitForFunction(
+        () => window.__app.state.imageData && !window.__app.state.analyzing,
+        null, {timeout: 300000});
     }
     await page.screenshot({path: path.join(OUT, `${c.name}.png`), fullPage: true});
 
@@ -56,6 +59,16 @@ const CASES = [
     if (info) {
       console.log(`  캔버스 ${info.canvas[0]}x${info.canvas[1]}  알파채널 ${info.hasAlpha ? '있음' : '없음'}`);
       console.log(`  ${info.info}`);
+      const blocks = await page.evaluate(() => window.__app.state.blocks.map(b => ({
+        id: b.id, tier: b.tier, n: b.lines.length,
+        conf: Math.round(b.confidence || 0), text: b.originalText,
+      })));
+      const tm = await page.evaluate(() => window.__app.state.timing);
+      console.log(`  블록 ${blocks.length}개  (검출 ${tm.detect}ms · OCR ${(tm.ocr/1000).toFixed(1)}s)`);
+      for (const b of blocks) {
+        const t = (b.text || '(인식 실패)').replace(/\n/g, ' ⏎ ');
+        console.log(`    ${b.id.padEnd(4)}[${b.tier}] ${String(b.conf).padStart(3)}%  ${t}`);
+      }
     } else {
       console.log('  초기 화면');
     }
