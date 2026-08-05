@@ -14,7 +14,11 @@ const el = {
   stage: $('stage'), dropzone: $('dropzone'), viewport: $('viewport'),
   canvas: $('preview'), overlay: $('overlay'), bgToggle: $('bgToggle'),
   info: $('imgInfo'), blockCount: $('blockCount'), blockList: $('blockList'),
-  status: $('status'),
+  status: $('status'), filterBar: $('filterBar'),
+  editor: $('editor'), editorTitle: $('editorTitle'), editorOrig: $('editorOrig'),
+  editorText: $('editorText'), editorHint: $('editorHint'), editorClose: $('editorClose'),
+  saveBtn: $('saveBtn'), revertBtn: $('revertBtn'),
+  dirtyCount: $('dirtyCount'), composeBtn: $('composeBtn'),
 };
 
 /** 앱 상태 (PLAN.md 10장). */
@@ -26,6 +30,7 @@ const state = {
   stats: null,
   blocks: [],
   selectedId: null,
+  filter: 'all',
   timing: null,
   fontMode: 'auto',
   selectedFont: null,
@@ -100,6 +105,7 @@ async function runAnalysis() {
     state.timing = {detect: Math.round(performance.now() - t0), ocr: 0};
     renderOverlay();
     renderBlockList();
+    renderDirtyCount();
 
     if (!state.blocks.length) { setStatus(null); return; }
 
@@ -117,8 +123,11 @@ async function runAnalysis() {
       await raf();
       const r = await OCR.recognizeBlock(state.imageData, b);
       b.originalText = r.text;
-      b.editedText = r.text;
+      b.editedText = r.text;      // 확정된 문구. M4 합성이 쓰는 값
+      b.draft = r.text;           // 편집 중인 값
+      b.dirty = false;
       b.confidence = r.confidence;
+      if (b.id === state.selectedId) renderEditor();
       renderBlockList();
     }
     state.timing.ocr = Math.round(performance.now() - t1);
@@ -169,17 +178,23 @@ function renderInfo(file) {
  *  캔버스는 CSS로만 축소되므로 % 좌표를 쓰면 확대/축소와 무관하게 맞는다. */
 function renderOverlay() {
   const W = el.canvas.width, H = el.canvas.height;
+  const shown = new Set(visibleBlocks().map((b) => b.id));
   el.overlay.innerHTML = state.blocks.map((b) => {
     const {x0, y0, x1, y1} = b.bbox;
     const style = `left:${x0 / W * 100}%;top:${y0 / H * 100}%;`
       + `width:${(x1 - x0) / W * 100}%;height:${(y1 - y0) / H * 100}%`;
-    return `<div class="bk bk-${b.tier}" data-id="${b.id}" style="${style}"`
+    const cls = ['bk', 'bk-' + b.tier];
+    if (b.id === state.selectedId) cls.push('sel');
+    if (!shown.has(b.id)) cls.push('faded');
+    if (b.dirty) cls.push('dirty');
+    return `<div class="${cls.join(' ')}" data-id="${b.id}" style="${style}"`
       + ` title="${TIER_LABEL[b.tier]}"><i>${b.tier}</i></div>`;
   }).join('');
 }
 
 function renderBlockList() {
   el.blockCount.textContent = state.blocks.length ? String(state.blocks.length) : '—';
+  el.filterBar.hidden = !state.blocks.length;
 
   if (!state.blocks.length) {
     el.blockList.innerHTML = state.sourceImage
@@ -188,18 +203,30 @@ function renderBlockList() {
     return;
   }
 
-  el.blockList.innerHTML = state.blocks.map((b) => {
-    const txt = b.originalText
-      ? escapeHtml(b.originalText).replace(/\n/g, '<br>')
-      : (b.originalText === '' && 'confidence' in b
+  const list = visibleBlocks();
+  if (!list.length) {
+    el.blockList.innerHTML = '<p class="placeholder">조건에 맞는 블록이 없습니다.</p>';
+    return;
+  }
+
+  el.blockList.innerHTML = list.map((b) => {
+    const shown = typeof b.draft === 'string' ? b.draft : b.originalText;
+    const mark = isUnsaved(b) ? '<span class="mark edit" title="저장하지 않은 변경">✎</span>'
+      : b.dirty ? '<span class="mark done" title="저장됨">✓</span>' : '';
+    const txt = shown
+      ? escapeHtml(shown).replace(/\n/g, '<br>')
+      : ('confidence' in b
         ? '<span class="fail">인식 실패</span>'
         : '<span class="pending">인식 대기…</span>');
     const low = typeof b.confidence === 'number' && b.originalText && b.confidence < CONF_LOW;
     const conf = typeof b.confidence === 'number' && b.originalText
       ? `<span class="conf${low ? ' low' : ''}" title="OCR 신뢰도">${Math.round(b.confidence)}%</span>` : '';
-    return `<div class="item item-${b.tier}${b.locked ? ' locked' : ''}${low ? ' lowconf' : ''}" data-id="${b.id}">
+    const sel = b.id === state.selectedId ? ' sel' : '';
+    return `<div class="item item-${b.tier}${b.locked ? ' locked' : ''}${low ? ' lowconf' : ''}${sel}"
+                 data-id="${b.id}" role="button" tabindex="-1">
       <div class="item-head">
         <span class="badge badge-${b.tier}" title="${TIER_LABEL[b.tier]}">${b.locked ? '🔒 ' : ''}${b.tier}</span>
+        ${mark}
         <span class="dim">${b.lines.length}줄 · ${b.bbox.x1 - b.bbox.x0}×${b.bbox.y1 - b.bbox.y0}</span>
         ${conf}
       </div>
@@ -207,6 +234,100 @@ function renderBlockList() {
       ${low ? '<p class="hint">인식 신뢰도가 낮습니다. 문구를 확인해 주세요.</p>' : ''}
     </div>`;
   }).join('');
+}
+
+/* ---------------- 블록 선택·편집 (M3) ---------------- */
+
+const byId = (id) => state.blocks.find((b) => b.id === id);
+const isUnsaved = (b) => (b.draft ?? '') !== (b.editedText ?? '');
+const visibleBlocks = () => state.blocks.filter((b) => {
+  if (state.filter === 'editable') return !b.locked;
+  if (state.filter === 'dirty') return b.dirty || isUnsaved(b);
+  return true;
+});
+
+function selectBlock(id, {scroll = true} = {}) {
+  state.selectedId = id;
+  renderBlockList();
+  renderEditor();
+  if (scroll && id) {
+    const node = el.blockList.querySelector(`.item[data-id="${id}"]`);
+    if (node) node.scrollIntoView({block: 'nearest'});
+  }
+}
+
+function renderEditor() {
+  const b = byId(state.selectedId);
+  if (!b) { el.editor.hidden = true; return; }
+  el.editor.hidden = false;
+  el.editorTitle.textContent = `블록 ${b.id} · ${TIER_LABEL[b.tier]}`;
+
+  if (b.locked) {
+    el.editorOrig.innerHTML = '<span class="locked-msg">배경이 복잡해 이번 버전에서는 교체할 수 없습니다.</span>';
+    el.editorText.value = b.originalText || '';
+    el.editorText.disabled = true;
+    el.saveBtn.disabled = el.revertBtn.disabled = true;
+    el.editorHint.textContent = '';
+    return;
+  }
+  if (typeof b.draft !== 'string') {           // OCR 이 아직 끝나지 않은 블록
+    el.editorOrig.innerHTML = '<span class="dim">인식 대기 중…</span>';
+    el.editorText.value = '';
+    el.editorText.disabled = true;
+    el.saveBtn.disabled = el.revertBtn.disabled = true;
+    el.editorHint.textContent = '';
+    return;
+  }
+
+  el.editorOrig.innerHTML = b.originalText
+    ? `원문 <code>${escapeHtml(b.originalText).replace(/\n/g, ' ⏎ ')}</code>`
+    : '<span class="fail">원문 인식 실패 — 직접 입력하세요</span>';
+  if (document.activeElement !== el.editorText) el.editorText.value = b.draft;
+  el.editorText.disabled = false;
+  el.editorText.rows = Math.max(2, b.lines.length + 1);
+  el.saveBtn.disabled = !isUnsaved(b);
+  el.revertBtn.disabled = !b.dirty && !isUnsaved(b);
+  el.editorHint.textContent = isUnsaved(b) ? '저장하지 않은 변경'
+    : b.dirty ? '저장됨' : '';
+  el.editorHint.className = 'editor-hint' + (isUnsaved(b) ? ' warn' : b.dirty ? ' ok' : '');
+}
+
+function saveBlock() {
+  const b = byId(state.selectedId);
+  if (!b || b.locked) return;
+  b.editedText = b.draft;
+  b.dirty = b.editedText !== b.originalText;
+  renderBlockList();
+  renderEditor();
+  renderDirtyCount();
+}
+
+function revertBlock() {
+  const b = byId(state.selectedId);
+  if (!b || b.locked) return;
+  b.draft = b.editedText = b.originalText;
+  b.dirty = false;
+  el.editorText.value = b.draft;
+  renderBlockList();
+  renderEditor();
+  renderDirtyCount();
+}
+
+function renderDirtyCount() {
+  const n = state.blocks.filter((b) => b.dirty).length;
+  const un = state.blocks.filter(isUnsaved).length;
+  el.dirtyCount.textContent = n ? `수정된 블록 ${n}개${un ? ` (미저장 ${un})` : ''}` : '';
+  el.composeBtn.disabled = true;   // 합성은 M4
+  el.composeBtn.title = n ? '합성은 M4에서 구현됩니다' : '수정된 블록이 없습니다';
+}
+
+/** 방향키로 블록을 옮겨 다닌다. 블록이 많을 때 목록 클릭만으로는 답답하다. */
+function moveSelection(delta) {
+  const list = visibleBlocks();
+  if (!list.length) return;
+  const i = list.findIndex((b) => b.id === state.selectedId);
+  const next = i < 0 ? 0 : Math.min(list.length - 1, Math.max(0, i + delta));
+  selectBlock(list[next].id);
 }
 
 const escapeHtml = (s) => s.replace(/[&<>"]/g, (c) => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
@@ -219,8 +340,11 @@ function highlight(id) {
 function reset() {
   Object.assign(state, {
     fileName: null, sourceImage: null, imageData: null, stats: null,
-    blocks: [], selectedId: null, analyzing: false,
+    blocks: [], selectedId: null, analyzing: false, filter: 'all',
   });
+  el.editor.hidden = true;
+  el.filterBar.hidden = true;
+  el.dirtyCount.textContent = '';
   el.viewport.hidden = true;
   el.dropzone.hidden = false;
   el.info.hidden = true;
@@ -264,15 +388,71 @@ el.bgToggle.addEventListener('click', (e) => {
   el.stage.className = 'stage bg-' + btn.dataset.bg;
 });
 
-// 목록 ↔ 오버레이 상호 강조
+// 목록 ↔ 오버레이 상호 강조. 선택된 블록이 있으면 그쪽 강조를 유지한다.
+const hoverOff = () => highlight(state.selectedId);
 el.blockList.addEventListener('mouseover', (e) => {
   const it = e.target.closest('.item');
   if (it) highlight(it.dataset.id);
 });
-el.blockList.addEventListener('mouseleave', () => highlight(null));
+el.blockList.addEventListener('mouseleave', hoverOff);
 el.overlay.addEventListener('mouseover', (e) => {
   const bk = e.target.closest('.bk');
   if (bk) highlight(bk.dataset.id);
 });
+el.overlay.addEventListener('mouseleave', hoverOff);
 
-window.__app = {state, loadFile, runAnalysis};
+/* ---------------- 선택·편집 (M3) ---------------- */
+
+el.blockList.addEventListener('click', (e) => {
+  const it = e.target.closest('.item');
+  if (it) selectBlock(it.dataset.id, {scroll: false});
+});
+el.overlay.addEventListener('click', (e) => {
+  const bk = e.target.closest('.bk');
+  if (bk) selectBlock(bk.dataset.id);          // 목록 쪽으로 스크롤해 준다
+});
+el.editorClose.addEventListener('click', () => selectBlock(null));
+
+el.editorText.addEventListener('input', () => {
+  const b = byId(state.selectedId);
+  if (!b || b.locked) return;
+  b.draft = el.editorText.value;
+  renderBlockList();
+  el.saveBtn.disabled = !isUnsaved(b);
+  el.revertBtn.disabled = !b.dirty && !isUnsaved(b);
+  el.editorHint.textContent = isUnsaved(b) ? '저장하지 않은 변경' : b.dirty ? '저장됨' : '';
+  el.editorHint.className = 'editor-hint' + (isUnsaved(b) ? ' warn' : b.dirty ? ' ok' : '');
+  renderDirtyCount();
+});
+el.editorText.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); saveBlock(); }
+  if (e.key === 'Escape') { e.preventDefault(); el.editorText.blur(); }
+});
+el.saveBtn.addEventListener('click', saveBlock);
+el.revertBtn.addEventListener('click', revertBlock);
+
+el.filterBar.addEventListener('click', (e) => {
+  const btn = e.target.closest('button[data-filter]');
+  if (!btn) return;
+  state.filter = btn.dataset.filter;
+  [...el.filterBar.children].forEach((b) => b.classList.toggle('on', b === btn));
+  renderBlockList();
+  renderOverlay();
+});
+
+// 방향키 이동. 입력 중일 때는 가로채지 않는다.
+document.addEventListener('keydown', (e) => {
+  if (e.target.matches('input, textarea, select')) return;
+  if (!state.blocks.length) return;
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    e.preventDefault();
+    moveSelection(e.key === 'ArrowDown' ? 1 : -1);
+  } else if (e.key === 'Enter' && state.selectedId) {
+    e.preventDefault();
+    if (!el.editorText.disabled) el.editorText.focus();
+  } else if (e.key === 'Escape') {
+    selectBlock(null);
+  }
+});
+
+window.__app = {state, loadFile, runAnalysis, selectBlock, saveBlock, revertBlock};

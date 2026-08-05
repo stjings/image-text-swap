@@ -218,3 +218,54 @@ body {
 .item-head .conf.low { color: #b45309; font-weight: 700; }
 .item.lowconf { border-color: #fbbf24; }
 .item .hint { margin: 4px 0 0; font-size: 11px; color: #b45309; }
+
+/* ---------- 필터 ---------- */
+.filterbar { display: flex; gap: 4px; padding: 8px 8px 0; }
+.filterbar button {
+  font: inherit; font-size: 12px; padding: 4px 10px;
+  border: 1px solid var(--line); border-radius: 999px;
+  background: transparent; color: var(--muted); cursor: pointer;
+}
+.filterbar button.on { background: var(--accent-weak); color: var(--accent); border-color: var(--accent); font-weight: 700; }
+
+/* ---------- 목록 항목 상태 ---------- */
+.item { cursor: pointer; }
+.item:hover { border-color: var(--accent); }
+.item.sel { background: var(--accent-weak); border-color: var(--accent); }
+.item.locked { cursor: default; }
+.mark { font-size: 11px; font-weight: 700; }
+.mark.edit { color: #b45309; }
+.mark.done { color: #16a34a; }
+
+/* ---------- 오버레이 상태 ---------- */
+.bk { cursor: pointer; }
+.bk.faded { opacity: .2; }
+.bk.sel { background: rgba(37, 99, 235, .28); box-shadow: 0 0 0 2px var(--accent); }
+.bk.dirty { border-style: dashed; }
+
+/* ---------- 편집 패널 ---------- */
+.editor { border-top: 1px solid var(--line); padding: 12px 14px; }
+.editor-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.iconbtn {
+  font: inherit; border: 0; background: none; color: var(--muted);
+  cursor: pointer; padding: 2px 6px; border-radius: 6px;
+}
+.iconbtn:hover { background: var(--line); color: var(--text); }
+.editor-orig { margin: 0 0 8px; font-size: 11px; color: var(--muted); line-height: 1.6; }
+.editor-orig code {
+  font-family: inherit; background: var(--bg); padding: 1px 5px; border-radius: 4px;
+  word-break: break-all;
+}
+.editor-orig .locked-msg { color: #b45309; }
+.editor textarea {
+  width: 100%; font: inherit; font-size: 13px; line-height: 1.6;
+  padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px;
+  background: var(--panel); color: var(--text); resize: vertical;
+}
+.editor textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; border-color: transparent; }
+.editor textarea:disabled { background: var(--bg); color: var(--muted); }
+.editor-actions { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+.editor-hint { flex: 1; font-size: 11px; color: var(--muted); }
+.editor-hint.warn { color: #b45309; font-weight: 700; }
+.editor-hint.ok { color: #16a34a; font-weight: 700; }
+.dirtycount { font-size: 12px; color: var(--muted); align-self: center; margin-right: 4px; }

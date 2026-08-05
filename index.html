@@ -52,8 +52,28 @@
       <span id="blockCount" class="count">—</span>
     </div>
     <p id="status" class="status" hidden></p>
-    <div id="blockList" class="blocklist">
+    <div id="filterBar" class="filterbar" hidden>
+      <button type="button" data-filter="all" class="on">전체</button>
+      <button type="button" data-filter="editable">편집 가능</button>
+      <button type="button" data-filter="dirty">수정됨</button>
+    </div>
+    <div id="blockList" class="blocklist" tabindex="0">
       <p class="placeholder">이미지를 올리면 검출된 텍스트 블록이 여기에 표시됩니다.</p>
+    </div>
+
+    <div id="editor" class="editor" hidden>
+      <div class="editor-head">
+        <span id="editorTitle" class="pane-title">선택한 블록</span>
+        <button id="editorClose" class="iconbtn" type="button" aria-label="선택 해제">✕</button>
+      </div>
+      <p id="editorOrig" class="editor-orig"></p>
+      <textarea id="editorText" rows="3" aria-label="문구 편집"
+                placeholder="문구를 입력하세요"></textarea>
+      <div class="editor-actions">
+        <span id="editorHint" class="editor-hint"></span>
+        <button id="revertBtn" class="btn btn-ghost" type="button">되돌리기</button>
+        <button id="saveBtn" class="btn btn-primary" type="button">저장</button>
+      </div>
     </div>
   </aside>
 
@@ -67,7 +87,8 @@
     <select id="fontSelect" aria-label="폰트 선택"><option>Noto Sans KR</option></select>
   </fieldset>
   <div class="bottom-right">
-    <button class="btn" type="button" disabled>수정 요청</button>
+    <span id="dirtyCount" class="dirtycount"></span>
+    <button id="composeBtn" class="btn" type="button" disabled>수정 요청</button>
     <button class="btn btn-ghost" type="button" disabled>원본 / 결과</button>
     <button class="btn btn-primary" type="button" disabled>PNG 다운로드</button>
   </div>
