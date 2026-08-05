@@ -84,6 +84,47 @@ const CASES = [
     console.log(`       조치: ${r.notes.length ? r.notes.map((n) => n.text).join(' / ') : '없음'}`);
   }
 
+  // ---- 유형 B (단색 배경) ----
+  console.log('\n[유형 B — 단색 배경 채우기]');
+  await page.goto(`http://127.0.0.1:${PORT}/index.html`);
+  await page.setInputFiles('#fileInput', path.join(ROOT, 'assets/sample-complex.png'));
+  await page.waitForFunction(() => window.__app.state.imageData && !window.__app.state.analyzing,
+    null, {timeout: 300000});
+
+  const rb = await page.evaluate(async () => {
+    const app = window.__app, s = app.state;
+    // 파란 정보 박스 한 줄과 검은 원 배지를 함께 고친다.
+    const edits = [
+      {tier: 'B', match: /이벤트 기간/, text: '이벤트 기간 : ~12/31(수)까지'},
+      {tier: 'B', match: /추첨/, text: '추첨\n9명'},
+    ];
+    const done = [];
+    for (const e of edits) {
+      const b = s.blocks.find((x) => x.tier === e.tier && !x.locked && e.match.test(x.originalText || ''));
+      if (!b) continue;
+      app.selectBlock(b.id);
+      b.draft = e.text;
+      app.saveBlock();
+      done.push({id: b.id, from: b.originalText, to: e.text, bg: b.bgColor, box: b.bbox});
+    }
+    await app.runCompose();
+
+    const c2 = document.createElement('canvas');
+    c2.width = s.imageData.width; c2.height = s.imageData.height;
+    c2.getContext('2d').drawImage(s.result, 0, 0);
+    return {edits: done, notes: s.composeNotes, ms: s.timing.compose, png: c2.toDataURL('image/png')};
+  });
+
+  fs.writeFileSync(path.join(OUT, 'compose-유형B.png'),
+    Buffer.from(rb.png.split(',')[1], 'base64'));
+  for (const e of rb.edits) {
+    console.log(`  ${e.id}  "${(e.from || '').replace(/\n/g, ' ⏎ ')}"  →  "${e.to.replace(/\n/g, ' ⏎ ')}"  배경 rgb(${e.bg})`);
+  }
+  check('유형 B 블록이 건너뛰어지지 않는다',
+    !rb.notes.some((n) => n.level === 'skip'), rb.notes.map((n) => n.text).join(' / ') || '건너뜀 없음');
+  check('유형 B 편집이 실제로 적용됐다', rb.edits.length === 2, `${rb.edits.length}건`);
+  console.log(`       조치: ${rb.notes.length ? rb.notes.map((n) => n.text).join(' / ') : '없음'}  (${rb.ms}ms)`);
+
   // 원본/결과 토글
   const tg = await page.evaluate(() => {
     const app = window.__app;

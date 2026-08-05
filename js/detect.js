@@ -16,6 +16,7 @@ const Detect = (() => {
   const QUANT = 16;        // 색 양자화 단위
   const NEAR = 72;         // 배경색 근접 판정 (채널 절대차 합)
   const FAR = 96;          // 배경 대비 이물(글자) 판정
+  const CORE_R = 0.65;     // 글자 코어 판정: 최대 색거리 대비 비율
   const RLSA_X = 26;       // 가로 런렝스 평활 — 글자를 줄로 잇는다
   const RLSA_Y = 4;        // 세로 런렝스 평활
   const MIN_H = 7, MAX_H = 170;   // 텍스트 줄 높이 허용 범위
@@ -276,15 +277,21 @@ const Detect = (() => {
         const t = judgeTier(d, W, H, b, Math.max(4, Math.round((b.y1 - b.y0) * 0.35)));
         if (t.tier === 'A') continue;
         const ref = t.bgColor || bg;
+        const distAt = (x, y) => {
+          const i = (y * W + x) * 4;
+          return Math.abs(d[i] - ref[0]) + Math.abs(d[i + 1] - ref[1]) + Math.abs(d[i + 2] - ref[2]);
+        };
+        // 배경에서 가장 먼 픽셀들만 글자 '코어'로 본다. 거리에 비례한 가중치를
+        // 주면 경계 픽셀이 절반 넘는 무게를 받아 색이 배경 쪽으로 끌려간다
+        // (검은 원 위 흰 글자가 회색으로 잡히던 문제).
+        let maxD = 0;
+        for (let y = b.y0; y < b.y1; y++) for (let x = b.x0; x < b.x1; x++)
+          if (ink[y * W + x]) maxD = Math.max(maxD, distAt(x, y));
+        const coreD = maxD * CORE_R;
         lines.push({
           bbox: b, tier: t.tier, bgColor: ref,
-          color: extractColor(d, W, b, (x, y) => {
-            const q = y * W + x;
-            if (!ink[q]) return 0;
-            const i = q * 4;
-            const dist = Math.abs(d[i] - ref[0]) + Math.abs(d[i + 1] - ref[1]) + Math.abs(d[i + 2] - ref[2]);
-            return Math.min(1, dist / (FAR * 2));   // 배경에 가까운 경계 픽셀은 약하게
-          }),
+          color: extractColor(d, W, b, (x, y) =>
+            (ink[y * W + x] && distAt(x, y) >= coreD) ? 1 : 0),
         });
       }
     }

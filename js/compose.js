@@ -1,7 +1,9 @@
 /* compose.js — 글자 제거 · 렌더 · 합성 · 오버플로
  * PLAN.md 7-5, 7-6, 7-8
  *
- * M4는 유형 A(투명 배경)만 처리한다. 유형 B(단색 배경 채우기)는 M4.5.
+ * 유형 A(투명 배경)는 알파를 0으로, 유형 B(단색 배경)는 배경을 복원해 지운다.
+ * 그 외 경로(색 추출·피팅·자간·오버플로·렌더)는 두 유형이 전부 공유한다.
+ *
  * 수정하지 않은 블록은 손대지 않는다. 전 블록을 재렌더하면 사용자가 건드리지도
  * 않은 문구까지 폰트 근사 오차로 열화된다(7-6).
  */
@@ -16,24 +18,94 @@ const Compose = (() => {
   const MIN_SCALE = 0.7;    // 오버플로 2단계: 폰트 축소 하한
   const ALIGN_TOL = 4;      // 정렬 추정 허용 오차(px)
   const TRACK_MAX = 0.15;   // 자간 상한 (폰트 크기 대비)
+  const INK_FAR = 96;       // 유형 B 잉크 판정: 배경색과의 채널 절대차 합
+  const ANCHOR_MAX = 60;    // 배경 보간 시 좌우로 찾아볼 최대 거리(px)
 
-  /* ---------- 7-5 글자 제거 (유형 A) ---------- */
+  /* ---------- 7-5 글자 제거 ---------- */
 
-  function eraseBlock(d, W, H, block) {
+  /** 블록 안에서 글자 픽셀을 찾아 DILATE 만큼 부풀린 제거 마스크를 만든다.
+   *  안티에일리어싱 잔상이 남지 않도록 부풀리는 것이 핵심이다. */
+  function removalMask(d, W, H, block) {
     const {x0, y0, x1, y1} = block.bbox;
-    const del = [];
+    const bg = block.bgColor;
+    const m = new Uint8Array(W * H);
+    const isInk = (i) => block.tier === 'A'
+      ? d[i + 3] > ALPHA_T
+      : d[i + 3] > 200 && Math.abs(d[i] - bg[0]) + Math.abs(d[i + 1] - bg[1])
+        + Math.abs(d[i + 2] - bg[2]) > INK_FAR;
+
     for (let y = y0; y < y1; y++) {
       for (let x = x0; x < x1; x++) {
-        if (d[(y * W + x) * 4 + 3] <= ALPHA_T) continue;
+        if (!isInk((y * W + x) * 4)) continue;
         for (let dy = -DILATE; dy <= DILATE; dy++) {
           for (let dx = -DILATE; dx <= DILATE; dx++) {
             const nx = x + dx, ny = y + dy;
-            if (nx >= 0 && ny >= 0 && nx < W && ny < H) del.push(ny * W + nx);
+            if (nx >= 0 && ny >= 0 && nx < W && ny < H) m[ny * W + nx] = 1;
           }
         }
       }
     }
-    for (const i of del) d[i * 4 + 3] = 0;
+    return m;
+  }
+
+  /** 유형 A — 알파를 0으로. 배경 복원이 필요 없다. */
+  function eraseTransparent(d, W, mask) {
+    for (let i = 0; i < mask.length; i++) if (mask[i]) d[i * 4 + 3] = 0;
+  }
+
+  /**
+   * 유형 B — 배경을 복원해 덮는다.
+   *
+   * 계획서는 "대표색 하나로 채우기"였지만, 실측상 단색 배경도 위치에 따라 RGB가
+   * 10 남짓 변한다(파란 정보 박스). 한 색으로 칠하면 그 자리가 띠처럼 보인다.
+   * 대신 **줄 단위로 좌우 배경을 찾아 선형 보간**한다. 배경이 균일하면 결과가
+   * 대표색 채우기와 같아지고, 변하면 그 변화를 따라간다.
+   */
+  function erasePaint(d, W, H, mask, block) {
+    const {x0, y0, x1, y1} = block.bbox;
+    const bg = block.bgColor || [255, 255, 255];
+    const px = (x, y) => (y * W + x) * 4;
+
+    // 좌우로 마스크 밖 배경 픽셀을 찾는다. 못 찾으면 대표색으로 물러선다.
+    const anchor = (y, from, dir) => {
+      for (let k = 1; k <= ANCHOR_MAX; k++) {
+        const x = from + dir * k;
+        if (x < 0 || x >= W) break;
+        if (!mask[y * W + x]) {
+          const i = px(x, y);
+          if (d[i + 3] > 200) return [d[i], d[i + 1], d[i + 2]];
+        }
+      }
+      return null;
+    };
+
+    const pad = DILATE;
+    for (let y = Math.max(0, y0 - pad); y < Math.min(H, y1 + pad); y++) {
+      let x = Math.max(0, x0 - pad);
+      const end = Math.min(W, x1 + pad);
+      while (x < end) {
+        if (!mask[y * W + x]) { x++; continue; }
+        let run = x;
+        while (run < end && mask[y * W + run]) run++;
+        const L = anchor(y, x, -1) || bg;
+        const R = anchor(y, run - 1, 1) || L;
+        for (let k = x; k < run; k++) {
+          const t = run - x > 1 ? (k - x) / (run - x - 1) : 0;
+          const i = px(k, y);
+          d[i]     = Math.round(L[0] + (R[0] - L[0]) * t);
+          d[i + 1] = Math.round(L[1] + (R[1] - L[1]) * t);
+          d[i + 2] = Math.round(L[2] + (R[2] - L[2]) * t);
+          d[i + 3] = 255;
+        }
+        x = run;
+      }
+    }
+  }
+
+  function eraseBlock(d, W, H, block) {
+    const mask = removalMask(d, W, H, block);
+    if (block.tier === 'A') eraseTransparent(d, W, mask);
+    else erasePaint(d, W, H, mask, block);
   }
 
   /* ---------- 7-6 측정 · 피팅 ---------- */
@@ -167,11 +239,12 @@ const Compose = (() => {
     const targets = blocks.filter((b) => b.dirty && !b.locked);
     const notes = [];
 
-    // 유형 B 는 M4.5. 지금은 건드리지 않고 사유만 남긴다.
-    const deferred = targets.filter((b) => b.tier !== 'A');
-    const doable = targets.filter((b) => b.tier === 'A');
-    for (const b of deferred) {
-      notes.push({id: b.id, level: 'skip', text: '단색 배경 합성은 아직 지원하지 않습니다 (M4.5)'});
+    // 유형 B 인데 배경색을 못 구한 블록은 지울 방법이 없다.
+    const doable = targets.filter((b) => b.tier === 'A' || b.bgColor);
+    for (const b of targets) {
+      if (!doable.includes(b)) {
+        notes.push({id: b.id, level: 'skip', text: '배경색을 찾지 못해 교체할 수 없습니다'});
+      }
     }
 
     for (const b of doable) eraseBlock(out.data, W, H, b);
@@ -235,7 +308,9 @@ const Compose = (() => {
     g.addColorStop(0, `rgb(${block.colorTop.join(',')})`);
     g.addColorStop(1, `rgb(${block.colorBottom.join(',')})`);
     ctx.fillStyle = g;
-    ctx.globalAlpha = block.opacity ?? 1;    // 원본이 반투명 글자면 그대로 물려받는다
+    // 유형 A는 원본이 반투명 글자면 그대로 물려받는다. 유형 B는 이미 불투명
+    // 배경 위에 그리므로 알파를 낮추면 배경이 비쳐 색이 흐려진다.
+    ctx.globalAlpha = block.tier === 'A' ? (block.opacity ?? 1) : 1;
     ctx.fillText(text, x, y);
     ctx.globalAlpha = 1;
   }
