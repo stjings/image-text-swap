@@ -11,7 +11,7 @@
 |---|------|------|
 | M0 | 제거 → 재합성 스파이크 | ✅ 통과 ([PLAN.md 부록 B](./PLAN.md#부록-b-m0-스파이크-결과)) |
 | M1 | 업로드 · 체커보드 미리보기 · Canvas 로드 | ✅ 완료 |
-| M2 | 블록 분리 · OCR · 블록 목록 | 예정 |
+| M2 | 배경 유형 판정 · 블록 분리 · OCR | ✅ 완료 ([PLAN.md 부록 C](./PLAN.md#부록-c-m2-결과)) |
 | M3 | 블록 선택 · 편집 · 저장 | 예정 |
 | M4 / M4.5 | 합성 (유형 A / 유형 B) | 예정 |
 | M5 | 폰트 직접 선택 · 자동판별 | 예정 |
@@ -35,7 +35,10 @@ npx http-server . -p 8080     # 또는 아무 정적 서버
 index.html      단일 페이지 UI
 css/            스타일
 js/app.js       플로우 오케스트레이션·상태관리
+js/detect.js    배경 유형 판정 · 잉크 검출 · 블록 분리 · 색 추출
+js/ocr.js       Tesseract.js 래퍼 (전처리 · 인식)
 fonts/          웹폰트 후보 13종 (woff2) + fonts.css
+vendor/         Tesseract 자산 자체 호스팅 (약 17MB)
 assets/         기준 샘플 이미지
 tools/          검증 도구 (배포물 아님)
 spike/          M0 스파이크 (M1 이후 폐기 예정)
@@ -47,7 +50,8 @@ spike/          M0 스파이크 (M1 이후 폐기 예정)
 playwright·http-server 를 쓰기 위한 것이다.
 
 ```bash
-NODE_PATH=$(npm root -g) node tools/screenshot.js   # 샘플 업로드 후 화면 캡처
+NODE_PATH=$(npm root -g) node tools/screenshot.js   # 업로드 → 검출 → OCR 전 과정
+NODE_PATH=$(npm root -g) node tools/detect-probe.js # 검출 결과 + 경계 시각화
 NODE_PATH=$(npm root -g) node spike/run.js          # M0 파이프라인 재실행
 python3 tools/tier-probe.py                         # 배경 유형 판정 검증
 ```
