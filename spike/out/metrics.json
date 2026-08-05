@@ -1,0 +1,144 @@
+{
+  "size": {
+    "W": 1140,
+    "H": 184
+  },
+  "overallIoU": 0.7332,
+  "blocks": [
+    {
+      "idx": 0,
+      "text": "더 이상의 설명은 필요없습니다.",
+      "replaced": "설명이 더 필요하신가요?",
+      "box": {
+        "x0": 424,
+        "y0": 6,
+        "x1": 716,
+        "y1": 28
+      },
+      "tier": "A",
+      "clearRatio": 0.594,
+      "color": {
+        "top": [
+          255,
+          255,
+          255
+        ],
+        "bottom": [
+          255,
+          255,
+          255
+        ],
+        "opacity": 0.6
+      },
+      "font": "Noto Sans KR 400",
+      "iou": 0.8681,
+      "gap": 0.2369,
+      "fittedSize": 23.23,
+      "tracking": 0.06,
+      "top3": [
+        {
+          "font": "Noto Sans KR 400",
+          "iou": 0.8681
+        },
+        {
+          "font": "Nanum Gothic 800",
+          "iou": 0.6311
+        },
+        {
+          "font": "Nanum Gothic 700",
+          "iou": 0.6217
+        }
+      ]
+    },
+    {
+      "idx": 1,
+      "text": "2027 합격을 위한 행정법",
+      "replaced": "2028 합격을 위한 헌법",
+      "box": {
+        "x0": 293,
+        "y0": 54,
+        "x1": 846,
+        "y1": 103
+      },
+      "tier": "A",
+      "clearRatio": 0.367,
+      "color": {
+        "top": [
+          226,
+          26,
+          0
+        ],
+        "bottom": [
+          226,
+          26,
+          0
+        ],
+        "opacity": 1
+      },
+      "font": "Gothic A1 900",
+      "iou": 0.6162,
+      "gap": 0.0932,
+      "fittedSize": 49.68,
+      "tracking": -0.29,
+      "top3": [
+        {
+          "font": "Gothic A1 900",
+          "iou": 0.6162
+        },
+        {
+          "font": "Gothic A1 700",
+          "iou": 0.523
+        },
+        {
+          "font": "Black Han Sans 400",
+          "iou": 0.5026
+        }
+      ]
+    },
+    {
+      "idx": 2,
+      "text": "결국, 써니 뿐입니다.",
+      "replaced": "정답은, 써니 뿐입니다.",
+      "box": {
+        "x0": 337,
+        "y0": 125,
+        "x1": 797,
+        "y1": 174
+      },
+      "tier": "A",
+      "clearRatio": 0.445,
+      "color": {
+        "top": [
+          226,
+          26,
+          0
+        ],
+        "bottom": [
+          226,
+          26,
+          0
+        ],
+        "opacity": 1
+      },
+      "font": "Black Han Sans 400",
+      "iou": 0.7154,
+      "gap": 0.0911,
+      "fittedSize": 61.3,
+      "tracking": -0.64,
+      "top3": [
+        {
+          "font": "Black Han Sans 400",
+          "iou": 0.7154
+        },
+        {
+          "font": "Jua 400",
+          "iou": 0.6243
+        },
+        {
+          "font": "IBM Plex Sans KR 700",
+          "iou": 0.4754
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,245 @@
+<!doctype html>
+<html lang="ko">
+<meta charset="utf-8">
+<title>M0 스파이크 — 제거 → 재합성</title>
+<link rel="stylesheet" href="../fonts/fonts.css">
+<body style="margin:0;background:#222">
+<script>
+/* M0 스파이크 (PLAN.md 12장)
+ *
+ * 목적: "지우고 다시 그린 결과가 원본처럼 보이는가" 한 가지만 확인한다.
+ * OCR 없이 문구를 하드코딩하고, 샘플 A에 대해 파이프라인의 합성 경로만 돌린다.
+ *
+ * 이 파일은 스파이크다. M1 이후 js/ 모듈로 정리하며 폐기한다.
+ */
+
+const SRC = '../assets/sample-simple.png';
+// 1행은 흰색 반투명이라 흰 배경에서는 보이지 않는다. 육안으로는 2줄이지만 실제로는 3줄이다.
+const ORIGINAL = ['더 이상의 설명은 필요없습니다.', '2027 합격을 위한 행정법', '결국, 써니 뿐입니다.'];
+const REPLACED = ['설명이 더 필요하신가요?', '2028 합격을 위한 헌법', '정답은, 써니 뿐입니다.'];
+
+const ALPHA_T = 20;     // 잉크 판정 (7-3)
+const CLEAR_R = 0.15;   // 투명 배경 판정: bbox 내 α≤ALPHA_T 픽셀 비율 (7-1)
+const DILATE = 2;       // 제거 마스크 팽창 (7-5)
+const FIT_ITERS = 4;    // 폰트 크기 피팅 반복 (7-6)
+
+const FONTS = [
+  ['Noto Sans KR', 400], ['Noto Sans KR', 700], ['Noto Sans KR', 900],
+  ['Gothic A1', 400], ['Gothic A1', 700], ['Gothic A1', 900],
+  ['IBM Plex Sans KR', 400], ['IBM Plex Sans KR', 700],
+  ['Nanum Gothic', 400], ['Nanum Gothic', 700], ['Nanum Gothic', 800],
+  ['Black Han Sans', 400], ['Jua', 400],
+];
+
+// ---------- 유틸 ----------
+const cv = (w, h) => Object.assign(document.createElement('canvas'), {width: w, height: h});
+const median = a => { const s = [...a].sort((x, y) => x - y); return s[s.length >> 1]; };
+
+function loadImage(src) {
+  return new Promise((res, rej) => {
+    const im = new Image();
+    im.onload = () => res(im); im.onerror = rej; im.src = src;
+  });
+}
+
+// ---------- 7-3 잉크 마스크 & 줄 분리 ----------
+function inkMask(d, w, h) {
+  const m = new Uint8Array(w * h);
+  for (let i = 0; i < w * h; i++) m[i] = d[i * 4 + 3] > ALPHA_T ? 1 : 0;
+  return m;
+}
+
+function splitLines(mask, w, h) {
+  const rows = new Int32Array(h);
+  for (let y = 0; y < h; y++) { let c = 0; for (let x = 0; x < w; x++) c += mask[y * w + x]; rows[y] = c; }
+  const lines = []; let y0 = -1;
+  for (let y = 0; y < h; y++) {
+    if (rows[y] > 0 && y0 < 0) y0 = y;
+    else if (rows[y] === 0 && y0 >= 0) { lines.push([y0, y]); y0 = -1; }
+  }
+  if (y0 >= 0) lines.push([y0, h]);
+  // 각 줄의 좌우 잉크 경계
+  return lines.map(([a, b]) => {
+    let x0 = w, x1 = 0;
+    for (let y = a; y < b; y++) for (let x = 0; x < w; x++)
+      if (mask[y * w + x]) { if (x < x0) x0 = x; if (x + 1 > x1) x1 = x + 1; }
+    return {x0, y0: a, x1, y1: b};
+  }).filter(b => b.x1 > b.x0);
+}
+
+// ---------- 7-1 배경 유형 판정 ----------
+// 알파 '중앙값'은 굵은 글자 + 타이트한 bbox 에서 잉크가 절반을 넘어 무너진다.
+// 대신 '투명 픽셀이 일정 비율 이상 존재하는가'를 본다.
+function judgeTier(d, w, b) {
+  let clear = 0, n = 0;
+  for (let y = b.y0; y < b.y1; y++) for (let x = b.x0; x < b.x1; x++) {
+    n++; if (d[(y * w + x) * 4 + 3] <= ALPHA_T) clear++;
+  }
+  const r = clear / n;
+  return {tier: r >= CLEAR_R ? 'A' : 'B?', clearRatio: r};   // B 경로는 M4.5
+}
+
+// ---------- 7-4 색·불투명도 추출 (알파 가중) ----------
+function extractColor(d, w, b) {
+  const band = (ya, yb) => {
+    let r = 0, g = 0, bl = 0, wt = 0;
+    for (let y = ya; y < yb; y++) for (let x = b.x0; x < b.x1; x++) {
+      const i = (y * w + x) * 4, a = d[i + 3];
+      if (a <= ALPHA_T) continue;
+      const k = a / 255;                       // 알파 가중 (반투명 글자 대응)
+      r += d[i] * k; g += d[i + 1] * k; bl += d[i + 2] * k; wt += k;
+    }
+    return wt ? [Math.round(r / wt), Math.round(g / wt), Math.round(bl / wt)] : [0, 0, 0];
+  };
+  // 글자 자체의 불투명도. 외곽 안티에일리어싱에 끌리지 않도록 상위 백분위를 쓴다.
+  const as = [];
+  for (let y = b.y0; y < b.y1; y++) for (let x = b.x0; x < b.x1; x++) {
+    const a = d[(y * w + x) * 4 + 3]; if (a > ALPHA_T) as.push(a);
+  }
+  as.sort((p, q) => p - q);
+  const opacity = as.length ? as[Math.floor(as.length * 0.95)] / 255 : 1;
+  const h = b.y1 - b.y0, q = Math.max(1, Math.round(h * 0.25));
+  return {top: band(b.y0, b.y0 + q), bottom: band(b.y1 - q, b.y1), opacity};
+}
+
+// ---------- 7-5 글자 제거 (dilate 마스크) ----------
+function removeInk(d, mask, w, h, boxes) {
+  const del = new Uint8Array(w * h);
+  for (const b of boxes)
+    for (let y = b.y0; y < b.y1; y++) for (let x = b.x0; x < b.x1; x++)
+      if (mask[y * w + x])
+        for (let dy = -DILATE; dy <= DILATE; dy++) for (let dx = -DILATE; dx <= DILATE; dx++) {
+          const nx = x + dx, ny = y + dy;
+          if (nx >= 0 && ny >= 0 && nx < w && ny < h) del[ny * w + nx] = 1;
+        }
+  for (let i = 0; i < w * h; i++) if (del[i]) d[i * 4 + 3] = 0;   // 유형 A: 알파 0
+}
+
+// ---------- 7-6 폰트 크기 피팅 & 자간 추정 ----------
+const setFont = (ctx, fam, wt, size, sp) => {
+  ctx.font = `${wt} ${size}px "${fam}"`;
+  ctx.letterSpacing = `${sp}px`;
+};
+
+function inkMetrics(ctx, text) {
+  const m = ctx.measureText(text);
+  return {
+    w: m.actualBoundingBoxLeft + m.actualBoundingBoxRight,
+    h: m.actualBoundingBoxAscent + m.actualBoundingBoxDescent,
+    left: m.actualBoundingBoxLeft, asc: m.actualBoundingBoxAscent,
+  };
+}
+
+function fit(ctx, fam, wt, text, targetW, targetH) {
+  let size = targetH * 1.2;
+  for (let i = 0; i < FIT_ITERS; i++) {                 // 높이로 크기 수렴
+    setFont(ctx, fam, wt, size, 0);
+    const h = inkMetrics(ctx, text).h;
+    if (!h) break;
+    size *= targetH / h;
+  }
+  setFont(ctx, fam, wt, size, 0);
+  const w0 = inkMetrics(ctx, text).w;
+  setFont(ctx, fam, wt, size, 10);
+  const w10 = inkMetrics(ctx, text).w;
+  const slope = (w10 - w0) / 10;                        // 자간 1px당 폭 증가량
+  const tracking = slope ? (targetW - w0) / slope : 0;  // 폭을 맞추는 자간
+  return {size, tracking};
+}
+
+// ---------- 7-6 렌더 ----------
+function renderLine(ctx, fam, wt, text, box, fitRes, color) {
+  setFont(ctx, fam, wt, fitRes.size, fitRes.tracking);
+  const m = inkMetrics(ctx, text);
+  const cx = (box.x0 + box.x1) / 2, cy = (box.y0 + box.y1) / 2;   // 중앙 정렬
+  const x = cx - m.w / 2 + m.left;
+  const y = cy - m.h / 2 + m.asc;
+  const g = ctx.createLinearGradient(0, cy - m.h / 2, 0, cy + m.h / 2);
+  g.addColorStop(0, `rgb(${color.top.join(',')})`);
+  g.addColorStop(1, `rgb(${color.bottom.join(',')})`);
+  ctx.fillStyle = g;
+  ctx.globalAlpha = color.opacity;      // 원본이 반투명 글자면 그 불투명도를 물려받는다
+  ctx.fillText(text, x, y);
+  ctx.globalAlpha = 1;
+}
+
+// ---------- 재현 충실도: 블록 영역 한정 제자리 IoU ----------
+// 전체 캔버스로 재면 다른 블록의 결과가 섞여 블록별 폰트 판별이 흐려진다.
+function iouRegion(maskA, maskB, w, b, pad = 6) {
+  let inter = 0, uni = 0;
+  for (let y = b.y0 - pad; y < b.y1 + pad; y++) for (let x = b.x0 - pad; x < b.x1 + pad; x++) {
+    const i = y * w + x;
+    if (i < 0 || i >= maskA.length) continue;
+    const p = maskA[i], q = maskB[i];
+    if (p & q) inter++; if (p | q) uni++;
+  }
+  return uni ? inter / uni : 0;
+}
+
+// ---------- 실행 ----------
+async function main() {
+  await document.fonts.ready;
+  await Promise.all(FONTS.map(([f, w]) => document.fonts.load(`${w} 100px "${f}"`, '가힣0')));
+
+  const img = await loadImage(SRC);
+  const W = img.width, H = img.height;
+  const base = cv(W, H), bctx = base.getContext('2d', {willReadFrequently: true});
+  bctx.drawImage(img, 0, 0);
+  const src = bctx.getImageData(0, 0, W, H);
+  const srcMask = inkMask(src.data, W, H);
+  const boxes = splitLines(srcMask, W, H);
+
+  const meta = boxes.map(b => ({
+    box: b, tier: judgeTier(src.data, W, b), color: extractColor(src.data, W, b),
+  }));
+
+  // 글자 제거
+  const removed = new ImageData(new Uint8ClampedArray(src.data), W, H);
+  removeInk(removed.data, srcMask, W, H, boxes);
+
+  // 폰트 판별은 '블록마다' 한다. 한 이미지 안에서도 줄마다 폰트가 다르다.
+  const picks = boxes.map((b, i) => {
+    const cands = FONTS.map(([fam, wt]) => {
+      const c = cv(W, H), ctx = c.getContext('2d', {willReadFrequently: true});
+      ctx.putImageData(removed, 0, 0);
+      const f = fit(ctx, fam, wt, ORIGINAL[i], b.x1 - b.x0, b.y1 - b.y0);
+      renderLine(ctx, fam, wt, ORIGINAL[i], b, f, meta[i].color);
+      const iou = iouRegion(srcMask, inkMask(ctx.getImageData(0, 0, W, H).data, W, H), W, b);
+      return {font: `${fam} ${wt}`, fam, wt, iou, fit: f};
+    }).sort((p, q) => q.iou - p.iou);
+    return {best: cands[0], gap: cands[0].iou - cands[1].iou, ranking: cands};
+  });
+
+  // 블록별 최적 폰트로 원문 재렌더(충실도 확인) / 새 문구 합성(실사용 시연)
+  const draw = (texts) => {
+    const c = cv(W, H), ctx = c.getContext('2d', {willReadFrequently: true});
+    ctx.putImageData(removed, 0, 0);
+    boxes.forEach((b, i) => {
+      const p = picks[i].best;
+      renderLine(ctx, p.fam, p.wt, texts[i], b, p.fit, meta[i].color);
+    });
+    return c;
+  };
+  const cSame = draw(ORIGINAL), cNew = draw(REPLACED);
+  const overallIoU = boxes.reduce((s, b, i) =>
+    s + iouRegion(srcMask, inkMask(cSame.getContext('2d').getImageData(0, 0, W, H).data, W, H), W, b), 0) / boxes.length;
+
+  const cR = cv(W, H); cR.getContext('2d').putImageData(removed, 0, 0);
+
+  window.__RESULT__ = {
+    size: {W, H}, overallIoU: +overallIoU.toFixed(4),
+    blocks: meta.map((m, i) => ({
+      idx: i, text: ORIGINAL[i], replaced: REPLACED[i], box: m.box, tier: m.tier.tier,
+      clearRatio: +m.tier.clearRatio.toFixed(3), color: m.color,
+      font: picks[i].best.font, iou: +picks[i].best.iou.toFixed(4), gap: +picks[i].gap.toFixed(4),
+      fittedSize: +picks[i].best.fit.size.toFixed(2), tracking: +picks[i].best.fit.tracking.toFixed(2),
+      top3: picks[i].ranking.slice(0, 3).map(s => ({font: s.font, iou: +s.iou.toFixed(4)})),
+    })),
+    png: {removed: cR.toDataURL('image/png'), same: cSame.toDataURL('image/png'), replaced: cNew.toDataURL('image/png')},
+  };
+  document.title = 'M0 DONE';
+}
+main().catch(e => { window.__ERROR__ = String(e && e.stack || e); document.title = 'M0 ERROR'; });
+</script>
+</body>
+</html>

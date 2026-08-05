@@ -1,0 +1,40 @@
+/* 폰트 후보군 — 전부 SIL Open Font License 1.1
+ *
+ * OFL은 임베드·재배포·상업적 이용을 모두 허용하므로 외부 공개 배포에
+ * 문제가 없다. PLAN.md 13장의 폰트 라이선스 리스크는 이 선택으로 닫힌다.
+ * 브랜드 전용 폰트를 추가할 때는 그 폰트의 라이선스를 별도로 확인해야 한다.
+ *
+ * 파일은 Google Fonts의 korean 서브셋 TTF를 woff2로 변환한 것이다.
+ */
+
+@font-face { font-family: 'Noto Sans KR'; font-weight: 400; font-display: block;
+  src: url('./NotoSansKR-400.woff2') format('woff2'); }
+@font-face { font-family: 'Noto Sans KR'; font-weight: 700; font-display: block;
+  src: url('./NotoSansKR-700.woff2') format('woff2'); }
+@font-face { font-family: 'Noto Sans KR'; font-weight: 900; font-display: block;
+  src: url('./NotoSansKR-900.woff2') format('woff2'); }
+
+@font-face { font-family: 'Gothic A1'; font-weight: 400; font-display: block;
+  src: url('./GothicA1-400.woff2') format('woff2'); }
+@font-face { font-family: 'Gothic A1'; font-weight: 700; font-display: block;
+  src: url('./GothicA1-700.woff2') format('woff2'); }
+@font-face { font-family: 'Gothic A1'; font-weight: 900; font-display: block;
+  src: url('./GothicA1-900.woff2') format('woff2'); }
+
+@font-face { font-family: 'IBM Plex Sans KR'; font-weight: 400; font-display: block;
+  src: url('./IBMPlexSansKR-400.woff2') format('woff2'); }
+@font-face { font-family: 'IBM Plex Sans KR'; font-weight: 700; font-display: block;
+  src: url('./IBMPlexSansKR-700.woff2') format('woff2'); }
+
+@font-face { font-family: 'Nanum Gothic'; font-weight: 400; font-display: block;
+  src: url('./NanumGothic-400.woff2') format('woff2'); }
+@font-face { font-family: 'Nanum Gothic'; font-weight: 700; font-display: block;
+  src: url('./NanumGothic-700.woff2') format('woff2'); }
+@font-face { font-family: 'Nanum Gothic'; font-weight: 800; font-display: block;
+  src: url('./NanumGothic-800.woff2') format('woff2'); }
+
+@font-face { font-family: 'Black Han Sans'; font-weight: 400; font-display: block;
+  src: url('./BlackHanSans-400.woff2') format('woff2'); }
+
+@font-face { font-family: 'Jua'; font-weight: 400; font-display: block;
+  src: url('./Jua-400.woff2') format('woff2'); }
