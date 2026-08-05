@@ -13,7 +13,8 @@
 | M1 | 업로드 · 체커보드 미리보기 · Canvas 로드 | ✅ 완료 |
 | M2 | 배경 유형 판정 · 블록 분리 · OCR | ✅ 완료 ([PLAN.md 부록 C](./PLAN.md#부록-c-m2-결과)) |
 | M3 | 블록 선택 · 편집 · 저장 | ✅ 완료 ([PLAN.md 부록 D](./PLAN.md#부록-d-m3-결과)) |
-| M4 / M4.5 | 합성 (유형 A / 유형 B) | 예정 |
+| M4 | 합성 (유형 A) | ✅ 완료 ([PLAN.md 부록 E](./PLAN.md#부록-e-m4-결과)) |
+| M4.5 | 합성 (유형 B) | 예정 |
 | M5 | 폰트 직접 선택 · 자동판별 | 예정 |
 | M6 | 다운로드 · GitHub Pages 배포 | 예정 |
 
@@ -37,6 +38,7 @@ css/            스타일
 js/app.js       플로우 오케스트레이션·상태관리
 js/detect.js    배경 유형 판정 · 잉크 검출 · 블록 분리 · 색 추출
 js/ocr.js       Tesseract.js 래퍼 (전처리 · 인식)
+js/compose.js   제거 · 렌더 · 자간 · 합성 · 오버플로
 fonts/          웹폰트 후보 13종 (woff2) + fonts.css
 vendor/         Tesseract 자산 자체 호스팅 (약 17MB)
 assets/         기준 샘플 이미지
@@ -53,6 +55,7 @@ playwright·http-server 를 쓰기 위한 것이다.
 NODE_PATH=$(npm root -g) node tools/screenshot.js   # 업로드 → 검출 → OCR 전 과정
 NODE_PATH=$(npm root -g) node tools/detect-probe.js # 검출 결과 + 경계 시각화
 NODE_PATH=$(npm root -g) node tools/edit-probe.js   # 선택·편집·저장 상호작용 검사
+NODE_PATH=$(npm root -g) node tools/compose-probe.js # 합성·오버플로·픽셀 보존 검사
 NODE_PATH=$(npm root -g) node spike/run.js          # M0 파이프라인 재실행
 python3 tools/tier-probe.py                         # 배경 유형 판정 검증
 ```

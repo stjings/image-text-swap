@@ -19,6 +19,7 @@ const el = {
   editorText: $('editorText'), editorHint: $('editorHint'), editorClose: $('editorClose'),
   saveBtn: $('saveBtn'), revertBtn: $('revertBtn'),
   dirtyCount: $('dirtyCount'), composeBtn: $('composeBtn'),
+  toggleBtn: $('toggleBtn'), downloadBtn: $('downloadBtn'), notes: $('notes'),
 };
 
 /** 앱 상태 (PLAN.md 10장). */
@@ -32,6 +33,9 @@ const state = {
   selectedId: null,
   filter: 'all',
   timing: null,
+  result: null,        // 합성 결과 canvas (M4)
+  showing: 'original',  // 'original' | 'result'
+  composeNotes: [],
   fontMode: 'auto',
   selectedFont: null,
   analyzing: false,
@@ -42,6 +46,8 @@ const TIER_LABEL = {A: '투명 배경', B: '단색 배경', C: '편집 불가'};
 // 실측상 인식에 성공한 블록은 86~96%, 실패한 블록은 0~79% 였다.
 // 신뢰도가 성공/실패를 꽤 잘 가르므로 낮은 블록을 눈에 띄게 표시한다.
 const CONF_LOW = 70;
+// M4는 고정 폰트로 합성한다. 후보 판별은 M5에서 이 값을 대체한다.
+const DEFAULT_FONT = {family: 'Noto Sans KR', weight: 700};
 
 /* ---------------- 이미지 로드 ---------------- */
 
@@ -300,6 +306,7 @@ function saveBlock() {
   renderBlockList();
   renderEditor();
   renderDirtyCount();
+  invalidateResult();
 }
 
 function revertBlock() {
@@ -311,14 +318,73 @@ function revertBlock() {
   renderBlockList();
   renderEditor();
   renderDirtyCount();
+  invalidateResult();
+}
+
+/** 문구가 바뀌면 이전 합성 결과는 낡은 것이다. 원본 보기로 되돌린다. */
+function invalidateResult() {
+  if (!state.result) return;
+  state.result = null;
+  state.composeNotes = [];
+  showResult(false);
+  renderNotes();
 }
 
 function renderDirtyCount() {
   const n = state.blocks.filter((b) => b.dirty).length;
   const un = state.blocks.filter(isUnsaved).length;
   el.dirtyCount.textContent = n ? `수정된 블록 ${n}개${un ? ` (미저장 ${un})` : ''}` : '';
-  el.composeBtn.disabled = true;   // 합성은 M4
-  el.composeBtn.title = n ? '합성은 M4에서 구현됩니다' : '수정된 블록이 없습니다';
+  el.composeBtn.disabled = !n || state.analyzing;
+  el.composeBtn.title = n ? '' : '수정된 블록이 없습니다';
+}
+
+/* ---------------- 합성 (M4) ---------------- */
+
+async function runCompose() {
+  if (state.composing) return;
+  state.composing = true;
+  el.composeBtn.disabled = true;
+  setStatus('합성 중…');
+  await raf();
+  try {
+    const font = state.selectedFont || DEFAULT_FONT;
+    const t0 = performance.now();
+    const {canvas, notes} = await Compose.compose(state.imageData, state.blocks, font);
+    state.result = canvas;
+    state.composeNotes = notes;
+    state.timing = {...(state.timing || {}), compose: Math.round(performance.now() - t0)};
+    showResult(true);
+    renderNotes();
+    setStatus(null);
+  } catch (e) {
+    setStatus(`합성 실패: ${e.message}`, true);
+    console.error(e);
+  } finally {
+    state.composing = false;
+    renderDirtyCount();
+  }
+}
+
+/** 미리보기를 원본/결과 사이에서 바꾼다. 오버레이는 결과 화면에서 숨긴다. */
+function showResult(on) {
+  if (on && !state.result) return;
+  state.showing = on ? 'result' : 'original';
+  const ctx = el.canvas.getContext('2d');
+  ctx.clearRect(0, 0, el.canvas.width, el.canvas.height);
+  if (on) ctx.drawImage(state.result, 0, 0);
+  else ctx.putImageData(state.imageData, 0, 0);
+  el.overlay.style.display = on ? 'none' : '';
+  el.toggleBtn.disabled = !state.result;
+  el.toggleBtn.textContent = on ? '원본 보기' : '결과 보기';
+  el.downloadBtn.disabled = true;   // 다운로드는 M6
+}
+
+function renderNotes() {
+  const ns = state.composeNotes;
+  if (!ns.length) { el.notes.hidden = true; return; }
+  el.notes.hidden = false;
+  el.notes.innerHTML = ns.map((n) =>
+    `<span class="note note-${n.level}">${escapeHtml(n.id)} · ${escapeHtml(n.text)}</span>`).join('');
 }
 
 /** 방향키로 블록을 옮겨 다닌다. 블록이 많을 때 목록 클릭만으로는 답답하다. */
@@ -341,7 +407,12 @@ function reset() {
   Object.assign(state, {
     fileName: null, sourceImage: null, imageData: null, stats: null,
     blocks: [], selectedId: null, analyzing: false, filter: 'all',
+    result: null, showing: 'original', composeNotes: [],
   });
+  el.notes.hidden = true;
+  el.overlay.style.display = '';
+  el.toggleBtn.disabled = true;
+  el.toggleBtn.textContent = '원본 / 결과';
   el.editor.hidden = true;
   el.filterBar.hidden = true;
   el.dirtyCount.textContent = '';
@@ -428,6 +499,8 @@ el.editorText.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); saveBlock(); }
   if (e.key === 'Escape') { e.preventDefault(); el.editorText.blur(); }
 });
+el.composeBtn.addEventListener('click', runCompose);
+el.toggleBtn.addEventListener('click', () => showResult(state.showing !== 'result'));
 el.saveBtn.addEventListener('click', saveBlock);
 el.revertBtn.addEventListener('click', revertBlock);
 
@@ -455,4 +528,5 @@ document.addEventListener('keydown', (e) => {
   }
 });
 
-window.__app = {state, loadFile, runAnalysis, selectBlock, saveBlock, revertBlock};
+window.__app = {state, loadFile, runAnalysis, selectBlock, saveBlock, revertBlock,
+                runCompose, showResult};

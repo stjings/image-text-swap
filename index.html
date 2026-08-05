@@ -43,6 +43,7 @@
       </div>
     </div>
 
+    <p id="notes" class="notes" hidden></p>
     <dl id="imgInfo" class="info" hidden></dl>
   </section>
 
@@ -89,14 +90,15 @@
   <div class="bottom-right">
     <span id="dirtyCount" class="dirtycount"></span>
     <button id="composeBtn" class="btn" type="button" disabled>수정 요청</button>
-    <button class="btn btn-ghost" type="button" disabled>원본 / 결과</button>
-    <button class="btn btn-primary" type="button" disabled>PNG 다운로드</button>
+    <button id="toggleBtn" class="btn btn-ghost" type="button" disabled>원본 / 결과</button>
+    <button id="downloadBtn" class="btn btn-primary" type="button" disabled>PNG 다운로드</button>
   </div>
 </footer>
 
 <script src="./vendor/tesseract/tesseract.min.js"></script>
 <script src="./js/detect.js"></script>
 <script src="./js/ocr.js"></script>
+<script src="./js/compose.js"></script>
 <script src="./js/app.js"></script>
 </body>
 </html>

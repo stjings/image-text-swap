@@ -269,3 +269,13 @@ body {
 .editor-hint.warn { color: #b45309; font-weight: 700; }
 .editor-hint.ok { color: #16a34a; font-weight: 700; }
 .dirtycount { font-size: 12px; color: var(--muted); align-self: center; margin-right: 4px; }
+
+/* ---------- 합성 안내 ---------- */
+.notes {
+  display: flex; flex-wrap: wrap; gap: 6px;
+  margin: 0; padding: 10px 14px; border-top: 1px solid var(--line);
+}
+.note { font-size: 11px; padding: 3px 8px; border-radius: 999px; }
+.note-warn { background: #fef3c7; color: #92400e; }
+.note-skip { background: var(--bg); color: var(--muted); }
+@media (prefers-color-scheme: dark) { .note-warn { background: #3b2f14; color: #fbbf24; } }
