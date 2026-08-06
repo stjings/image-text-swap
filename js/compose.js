@@ -168,45 +168,73 @@ const Compose = (() => {
   /* ---------- 7-8 오버플로 ---------- */
 
   /**
-   * 새 문구가 원래 폭을 넘칠 때 자간 압축 → 폰트 축소 → 폭 확장 → 경고 순으로
-   * 적용하고, 첫 단계에서 해결되면 멈춘다.
+   * 목표 폭에 정확히 맞는 자간. fitTracking 과 같은 기울기 역산인데 상한을 안 건다.
+   * 압축은 상한이 아니라 TRACK_STEP 으로 따로 제한한다.
    */
-  function resolveOverflow(ctx, font, text, size, track, box, room) {
-    const targetW = box.x1 - box.x0;
-    let w = widthAt(ctx, font, text, size, track);
-    if (w <= targetW) return {size, track, width: targetW, note: null};
+  function trackFor(ctx, font, text, size, targetW) {
+    setFont(ctx, font, size, 0);
+    const w0 = inkMetrics(ctx, text).w;
+    setFont(ctx, font, size, 10);
+    const k = (inkMetrics(ctx, text).w - w0) / 10;
+    return k ? (targetW - w0) / k : 0;
+  }
 
-    // 1단계 — 자간 추가 압축
-    const tightened = track - size * TRACK_STEP;
-    w = widthAt(ctx, font, text, size, tightened);
-    if (w <= targetW) return {size, track: tightened, width: targetW, note: null};
+  /**
+   * 새 문구가 넘칠 때의 처리 (v1.7 재작성).
+   *
+   * 예전 순서는 **자간 압축 → 폰트 축소 → 폭 확장** 이었다. 둘 다 틀렸다.
+   *
+   * 1. **압축이 먼저였다.** 블록 상자는 '원문 잉크가 차지한 크기'일 뿐 레이아웃
+   *    상자가 아니다. 옆이 비어 있으면 그냥 넘어가면 된다 — 디자이너가 손으로
+   *    고쳐도 그렇게 한다. 실측: `합격`→`불합격` 은 57px 넘쳤는데 오른쪽에
+   *    1221px 이 비어 있었다. 그런데도 자간을 조이고 폰트를 줄여, 낱말 사이가
+   *    사라지고 획이 얇아졌다.
+   * 2. **압축량이 넘친 양과 무관했다.** 1px 이 넘치든 100px 이 넘치든 자간을
+   *    폰트 크기의 5% 씩 깎았다. 실측: `50`→`60` 은 **2px(0.1%)** 넘쳤는데
+   *    자간이 글자마다 3.9px 씩, 줄 전체로 83px 좁아졌다.
+   *
+   * 지금은 넘어갈 자리가 있으면 아무것도 건드리지 않고, 좁혀야 할 때는 **필요한
+   * 만큼만** 좁힌다.
+   */
+  function resolveOverflow(ctx, font, text, size, track, box, avail) {
+    const targetW = box.x1 - box.x0;
+    // 상자보다 좁게 몰아넣지는 않는다. avail 이 상자보다 작게 나오면 무시한다.
+    const limit = Math.max(targetW, avail);
+    const w = widthAt(ctx, font, text, size, track);
+    const grew = (over) => over > targetW * 0.02
+      ? '문구가 길어져 원래 영역보다 넓어졌습니다' : null;
+
+    // 0단계 — 들어가면 그대로. 원본 굵기·자간을 지키는 것이 가장 원본에 가깝다.
+    if (w <= limit) return {size, track, width: w, note: grew(w - targetW)};
+
+    // 1단계 — 필요한 만큼만 자간 압축 (상한은 폰트 크기의 TRACK_STEP)
+    const floor = track - size * TRACK_STEP;
+    const need = trackFor(ctx, font, text, size, limit);
+    if (need >= floor) {
+      return {size, track: need, width: limit, note: grew(limit - targetW)};
+    }
 
     // 2단계 — 폰트 축소 (하한까지 이분 탐색)
     let lo = size * MIN_SCALE, hi = size, best = null;
     for (let i = 0; i < 12; i++) {
       const mid = (lo + hi) / 2;
-      const t = track * (mid / size) - mid * TRACK_STEP;
-      if (widthAt(ctx, font, text, mid, t) <= targetW) { best = {size: mid, track: t}; lo = mid; }
+      const t = Math.max(trackFor(ctx, font, text, mid, limit),
+                         track * (mid / size) - mid * TRACK_STEP);
+      if (widthAt(ctx, font, text, mid, t) <= limit) { best = {size: mid, track: t}; lo = mid; }
       else hi = mid;
     }
     if (best) {
-      const pct = Math.round(best.size / size * 100);
-      return {...best, width: targetW, note: `문구가 길어 ${pct}%로 축소했습니다`};
+      return {...best, width: limit,
+        note: `문구가 길어 글자를 ${Math.round(best.size / size * 100)}% 로 줄였습니다`};
     }
 
-    // 3단계 — 폭 확장 (인접 블록·캔버스 경계까지)
-    const shrunk = {size: size * MIN_SCALE, track: track * MIN_SCALE - size * MIN_SCALE * TRACK_STEP};
-    const need = widthAt(ctx, font, text, shrunk.size, shrunk.track);
-    if (need <= room) {
-      return {...shrunk, width: need,
-        note: `문구가 길어 ${Math.round(MIN_SCALE * 100)}%로 축소하고 폭을 넓혔습니다`};
-    }
-
-    // 4단계 — 경고 후 그대로
-    return {...shrunk, width: need, note: '문구가 너무 길어 영역을 벗어납니다'};
+    // 3단계 — 더는 못 줄인다. 그대로 두고 알린다.
+    const shrunk = {size: size * MIN_SCALE, track: floor * MIN_SCALE};
+    return {...shrunk, width: widthAt(ctx, font, text, shrunk.size, shrunk.track),
+            note: '문구가 너무 길어 옆 영역을 침범합니다'};
   }
 
-  /** 이 줄이 좌우로 얼마나 넓어질 수 있는지 — 다른 블록에 부딪히기 전까지. */
+  /** 이 줄의 좌우 경계 — 다른 블록에 부딪히기 전까지. */
   function roomFor(box, allBlocks, selfId, W) {
     let left = 0, right = W;
     for (const b of allBlocks) {
@@ -216,7 +244,22 @@ const Compose = (() => {
       if (o.x1 <= box.x0) left = Math.max(left, o.x1);
       else if (o.x0 >= box.x1) right = Math.min(right, o.x0);
     }
-    return right - left;
+    return {left, right};
+  }
+
+  /**
+   * 정렬 기준으로 실제 쓸 수 있는 폭.
+   *
+   * 왼쪽 정렬은 오른쪽으로만 자라고, 가운데 정렬은 양쪽으로 자란다 — 가운데는
+   * 좁은 쪽이 한계다. 이걸 구분하지 않고 좌우 경계 사이 거리를 그대로 쓰면
+   * 가운데 정렬 글자가 한쪽 이웃을 밟는다.
+   */
+  function usableWidth(box, align, bounds) {
+    const {left, right} = bounds;
+    if (align === 'left') return Math.max(0, right - box.x0);
+    if (align === 'right') return Math.max(0, box.x1 - left);
+    const cx = (box.x0 + box.x1) / 2;
+    return Math.max(0, 2 * Math.min(cx - left, right - cx));
   }
 
   /* ---------- 정렬 추정 (7-6, v1.5 재작성) ---------- */
@@ -354,8 +397,8 @@ const Compose = (() => {
         const size0 = blockSize;
         const track0 = fitTracking(ctx, font, src, size0, box.x1 - box.x0);
 
-        const room = roomFor(box, blocks, b.id, W);
-        const fit = resolveOverflow(ctx, font, text, size0, track0, box, room);
+        const avail = usableWidth(box, align, roomFor(box, blocks, b.id, W));
+        const fit = resolveOverflow(ctx, font, text, size0, track0, box, avail);
         if (fit.note) notes.push({id: b.id, level: 'warn', text: fit.note});
 
         drawLine(ctx, font, text, box, fit, align, b);
@@ -386,7 +429,7 @@ const Compose = (() => {
   // 다른 방식으로 글자를 놓으면 "판별할 때 닮았던 폰트"가 합성에서 달라진다.
   return {
     compose,
-    util: {setFont, inkMetrics, fitSize, fitTracking, guessAlign, alignOf, layout, inkX,
+    util: {setFont, inkMetrics, fitSize, fitTracking, guessAlign, alignOf, layout, inkX, roomFor, usableWidth, resolveOverflow,
            removalMask, ALPHA_T, INK_FAR, TRACK_MAX},
   };
 })();

@@ -143,6 +143,78 @@ const CASES = [
   check('결과로 되돌아온다',
     await page.evaluate(() => window.__app.state.showing) === 'result');
 
+  // ---- 오버플로 (v1.7 재작성) ----
+  //
+  // 예전에는 넘치면 무조건 자간부터 5% 깎고 폰트를 줄였다. 옆이 비어 있어도
+  // 그랬고, 1px 이 넘쳐도 그랬다. 사용자가 `합격`→`불합격`, `50`→`60` 을
+  // 넣었을 때 낱말 사이가 사라지고 획이 얇아진 원인이다.
+  console.log('\n[넘칠 때의 처리]');
+  await page.goto(`http://127.0.0.1:${PORT}/index.html`);
+  await page.setInputFiles('#fileInput', path.join(ROOT, 'assets/sample-headline.png'));
+  await page.waitForFunction(() => window.__app.state.imageData && !window.__app.state.analyzing,
+    null, {timeout: 300000});
+
+  const ov = await page.evaluate(() => {
+    const st = window.__app.state;
+    const {layout, fitTracking, roomFor, usableWidth, resolveOverflow, setFont, inkMetrics} = Compose.util;
+    const c = document.createElement('canvas').getContext('2d', {willReadFrequently: true});
+    const run = (key, text) => {
+      const blk = st.blocks.find((x) => (x.originalText || '').includes(key));
+      if (!blk) return null;
+      const font = window.__app.fontFor(blk);
+      const L = layout(c, blk, font);
+      const box = L.boxes[0], targetW = box.x1 - box.x0;
+      const track = fitTracking(c, font, L.srcLines[0], L.size, targetW);
+      const avail = usableWidth(box, L.align, roomFor(box, st.blocks, blk.id, st.imageData.width));
+      setFont(c, font, L.size, track);
+      const w = inkMetrics(c, text).w;
+      const f = resolveOverflow(c, font, text, L.size, track, box, avail);
+      return {size: L.size, track, avail, targetW, over: w - targetW,
+              fitSize: f.size, fitTrack: f.track, note: f.note};
+    };
+    const src = (key) => (st.blocks.find((x) => (x.originalText || '').includes(key)).originalText);
+    return {
+      big:   run('초시때', src('초시때').replace('합격', '불합격')),
+      tiny:  run('공단기로', src('공단기로').replace('50만원', '60만원')),
+      // 옆이 막힐 만큼 아주 길게 — 이때는 좁히는 게 맞다
+      huge:  run('공단기로', src('공단기로').repeat(4)),
+    };
+  });
+
+  const same = (a, b) => Math.abs(a - b) < 1e-6;
+  console.log(`  6.5% 넘침  → 크기 ${ov.big.fitSize.toFixed(1)} (원래 ${ov.big.size.toFixed(1)})`
+    + ` · 자간 ${ov.big.fitTrack.toFixed(2)} (원래 ${ov.big.track.toFixed(2)}) · 여유 ${Math.round(ov.big.avail)}px`);
+  console.log(`  0.1% 넘침  → 크기 ${ov.tiny.fitSize.toFixed(1)} · 자간 ${ov.tiny.fitTrack.toFixed(2)}`);
+  console.log(`  4배 길이   → 크기 ${ov.huge.fitSize.toFixed(1)} · 자간 ${ov.huge.fitTrack.toFixed(2)} · ${ov.huge.note}`);
+
+  check('옆이 비어 있으면 크기를 안 줄인다',
+    same(ov.big.fitSize, ov.big.size) && same(ov.tiny.fitSize, ov.tiny.size),
+    `${ov.big.fitSize.toFixed(1)}/${ov.big.size.toFixed(1)}`);
+  check('옆이 비어 있으면 자간을 안 좁힌다',
+    same(ov.big.fitTrack, ov.big.track) && same(ov.tiny.fitTrack, ov.tiny.track),
+    `${ov.big.fitTrack.toFixed(2)}/${ov.big.track.toFixed(2)}`);
+  check('조금 넘친 것에 큰 압축을 걸지 않는다',
+    ov.tiny.over > 0 && ov.tiny.over < 5 && same(ov.tiny.fitTrack, ov.tiny.track),
+    `${ov.tiny.over.toFixed(1)}px 넘침`);
+  check('정말 길면 그때는 줄인다',
+    ov.huge.fitSize < ov.huge.size && !!ov.huge.note,
+    `${ov.huge.fitSize.toFixed(1)} < ${ov.huge.size.toFixed(1)}`);
+  check('넓어지면 사용자에게 알린다', /넓어졌습니다/.test(ov.big.note || ''), ov.big.note);
+
+  // 가운데 정렬은 좁은 쪽이 한계다. 좌우 경계 사이 거리를 그대로 쓰면 이웃을 밟는다.
+  const usable = await page.evaluate(() => {
+    const {usableWidth} = Compose.util;
+    const box = {x0: 100, y0: 0, x1: 200, y1: 10};
+    const bounds = {left: 50, right: 1000};
+    return {
+      left: usableWidth(box, 'left', bounds),
+      right: usableWidth(box, 'right', bounds),
+      center: usableWidth(box, 'center', bounds),
+    };
+  });
+  check('가운데 정렬은 좁은 쪽 기준으로 잰다', usable.center === 200,
+    `왼쪽 ${usable.left} · 오른쪽 ${usable.right} · 가운데 ${usable.center}`);
+
   await page.screenshot({path: path.join(OUT, 'compose-result-view.png'), fullPage: true});
 
   console.log(`\n통과 ${pass} · 실패 ${fail}${errors.length ? `\n콘솔 오류: ${errors.join(' | ')}` : ''}`);
