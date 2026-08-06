@@ -1087,6 +1087,7 @@ image-text-swap/
 | 7 | 11장 | 영역 표시를 꺼도 미리보기에서 블록을 고를 수 있다 | 보이는 것과 고를 수 있는 것은 다른 문제다 |
 | 8 | 11장 | 원본/결과를 한 버튼 → **세그먼트 토글** | 이름이 바뀌는 버튼은 글자를 읽어야 현재 상태를 안다 |
 | 9 | — | 다른 파일을 열 때 이전 합성 결과를 버린다 | 안 버리면 다운로드가 옛 그림을 내보낸다 |
+| 10 | **배포** | `upload-pages-artifact` → `tar` + `upload-artifact` (`overwrite: true`) | 아티팩트가 두 개 등록돼 배포가 죽었고, 재실행으로도 안 풀렸다 (부록 H) |
 
 ### v1.3 → v1.4 (내 PC 폰트)
 
@@ -1757,6 +1758,40 @@ Pages enabled and configured to build using GitHub Actions
 | deploy-pages | success — `Reported success!` |
 
 이후 이 브랜치에 푸시하면 자동 배포된다. 저장소 설정을 손으로 만질 일은 없다.
+
+### 배포 실패 (v1.5) — 아티팩트가 두 개 등록됐다
+
+9번째 실행이 죽었다. 코드가 아니라 업로드 단계였다.
+
+```
+Error: Multiple artifacts named "github-pages" were unexpectedly found
+for this workflow run. Artifact count is 2.
+```
+
+15MB 를 올리느라 `Finalizing artifact upload` 이 **27초** 걸렸고, 그 사이 업로드가
+재시도되면서 같은 이름의 아티팩트가 두 개 등록됐다. `deploy-pages` 는 이름이 하나일
+것을 전제하므로 그대로 실패한다.
+
+**재실행으로는 못 푼다.** 그 런에 이미 중복이 남아 있어 두 번째 시도도 같은 자리에서
+죽었다(attempt 2). `upload-pages-artifact@v3` 는 이걸 막을 손잡이(`overwrite`)를
+노출하지 않는다.
+
+`tar` + `upload-artifact@v4` 로 직접 바꿨다. tar 명령은 그 액션이 내부에서 하는 것과
+같고, 다른 점은 **`overwrite: true`** 하나다 — 같은 이름이 이미 있으면 지우고 올린다.
+같이 넣은 것: 배포물의 `js/` 목록을 로그에 남긴다. "고쳤는데 화면이 그대로"일 때
+코드 문제인지 배포 문제인지 여기서 갈린다.
+
+10번째 실행 로그:
+
+```
+25M	_site
+-rw-r--r-- 1 runner runner  5175 typo.js     ← 새 파일 들어갔다
+Found 1 artifact(s)                          ← 2 → 1
+Reported success!
+```
+
+**교훈: 배포 성공/실패를 사람 눈으로 확인해야 한다.** 푸시가 끝났다고 배포가 된 게
+아니다. 이번엔 사용자가 "수정사항이 반영된 게 맞나"라고 물어서야 드러났다.
 
 ### 남은 확인 사항
 
