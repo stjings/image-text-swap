@@ -49,7 +49,7 @@ const TIER_LABEL = {A: '투명 배경', B: '단색 배경', C: '편집 불가'};
 // 신뢰도가 성공/실패를 꽤 잘 가르므로 낮은 블록을 눈에 띄게 표시한다.
 const CONF_LOW = 70;
 // 자동판별이 실패한 블록에 쓰는 최후 수단.
-const DEFAULT_FONT = {family: 'Noto Sans KR', weight: 700};
+const DEFAULT_FONT = {family: 'Pretendard', weight: 400};
 
 /** 블록에 쓸 폰트. 직접 선택이면 전 블록에 같은 폰트를 쓴다. */
 function fontFor(b) {
@@ -467,7 +467,8 @@ function fontLine(b) {
   const f = b.detectedFont;
   if (!f) return '';
   const pct = Math.round(f.score * 100);
-  const warn = f.lowConfidence ? ' <span class="lowgap">후보 간 차이 작음</span>' : '';
+  const warn = f.adjusted ? ' <span class="lowgap">이미지 기준으로 맞춤</span>'
+    : f.lowConfidence ? ' <span class="lowgap">후보 간 차이 작음</span>' : '';
   return `<p class="fontinfo">판별: ${escapeHtml(FontMatch.label(f))} <span class="dim">(유사도 ${pct}%)</span>${warn}</p>`;
 }
 
@@ -584,13 +585,16 @@ el.editorText.addEventListener('keydown', (e) => {
 
 // 자동판별과 직접 선택을 드롭다운 하나로 합쳤다. 라디오 + 드롭다운 두 컨트롤이
 // 같은 것을 정하고 있어 상단에 둘 이유가 없었다.
+// 드롭다운에는 자동판별 후보가 아닌 폰트도 넣는다. 자동판별을 좁힌 것과
+// 사용자가 고를 수 있는 폭을 좁히는 것은 다른 문제다.
 el.fontSelect.innerHTML = '<option value="auto">자동판별</option>'
-  + FontMatch.CANDIDATES.map((f, i) => `<option value="${i}">${FontMatch.label(f)}</option>`).join('');
+  + FontMatch.ALL.map((f, i) =>
+    `<option value="${i}">${FontMatch.label(f)}${i >= FontMatch.CANDIDATES.length ? ' (판별 제외)' : ''}</option>`).join('');
 
 el.fontSelect.addEventListener('change', async () => {
   const v = el.fontSelect.value;
   state.fontMode = v === 'auto' ? 'auto' : 'manual';
-  state.selectedFont = v === 'auto' ? null : FontMatch.CANDIDATES[+v];
+  state.selectedFont = v === 'auto' ? null : FontMatch.ALL[+v];
   renderBlockList();
   renderEditor();
   await refreshResult();

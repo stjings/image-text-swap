@@ -40,7 +40,7 @@ js/detect.js    배경 유형 판정 · 잉크 검출 · 블록 분리 · 색 �
 js/ocr.js       Tesseract.js 래퍼 (전처리 · 인식)
 js/compose.js   제거 · 렌더 · 자간 · 합성 · 오버플로
 js/fontmatch.js 폰트 후보 렌더 · 실루엣 비교 · 자동판별
-fonts/          웹폰트 후보 13종 (woff2) + fonts.css
+fonts/          웹폰트 25종 (woff2) + fonts.css
 vendor/         Tesseract 자산 자체 호스팅 (약 17MB)
 assets/         기준 샘플 이미지
 tools/          검증 도구 (배포물 아님)
@@ -73,11 +73,13 @@ python3 tools/tier-probe.py                         # 배경 유형 판정 검�
 
 배포 주소: **https://stjings.github.io/image-text-swap/**
 
-최초 1회 약 14MB(OCR 엔진·언어 데이터·웹폰트)를 내려받는다. 이후에는 브라우저
+최초 1회 약 13.5MB(OCR 엔진·언어 데이터·웹폰트)를 내려받는다. 이후에는 브라우저
 캐시가 처리한다.
 
 ## 폰트 라이선스
 
-등록된 웹폰트 13종은 전부 **SIL Open Font License 1.1** 이다. 임베드·재배포·상업적
+자동판별 후보는 디자인팀이 실제로 쓰는 **SUIT · Pretendard · Noto Sans KR** 세
+패밀리(15종)다. 그 외 10종은 직접 선택으로만 고를 수 있다. 등록된 폰트는 전부
+**SIL Open Font License 1.1** 이다. 임베드·재배포·상업적
 이용에 제약이 없어 외부 공개 배포가 가능하다. 브랜드 전용 폰트를 추가할 때는
 그 폰트의 라이선스를 별도로 확인해야 한다. 자세한 목록은 [PLAN.md 8-1](./PLAN.md).

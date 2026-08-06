@@ -80,20 +80,20 @@ const check = (name, ok, detail = '') => {
   console.log('\n[M0 결과와 대조]');
   const m0 = await page.evaluate(() => window.__app.state.blocks.map((b) =>
     ({id: b.id, font: b.detectedFont ? FontMatch.label(b.detectedFont) : null})));
-  check('흰 반투명 줄은 얇은 고딕으로 판별된다',
-    /Noto Sans KR 400|Gothic A1 400|Nanum Gothic 400/.test(m0[0].font || ''), m0[0].font);
+  check('흰 반투명 줄은 얇은 폰트로 판별된다',
+    /400|500/.test(m0[0].font || ''), m0[0].font);
   check('빨간 굵은 줄은 굵은 폰트로 판별된다',
-    /900|800|Black Han Sans/.test(m0[1].font || ''), m0[1].font);
+    /900|800/.test(m0[1].font || ''), m0[1].font);
 
   console.log('\n[직접 선택 모드]');
   check('드롭다운이 활성화된다', await page.getAttribute('#fontSelect', 'disabled') === null);
-  await page.selectOption('#fontSelect', {label: 'Black Han Sans 400'});
+  await page.selectOption('#fontSelect', {label: 'Black Han Sans 400 (판별 제외)'});
   const mode = await page.evaluate(() => ({
     mode: window.__app.state.fontMode,
     sel: FontMatch.label(window.__app.state.selectedFont),
     used: FontMatch.label(window.__app.fontFor(window.__app.state.blocks[0])),
   }));
-  check('선택한 폰트가 상태에 반영된다', mode.sel === 'Black Han Sans 400', mode.sel);
+  check('판별 제외 폰트도 직접 고를 수 있다', mode.sel === 'Black Han Sans 400', mode.sel);
   check('직접 선택이 판별 결과를 덮어쓴다', mode.used === 'Black Han Sans 400', mode.used);
   check('목록에 직접 선택 표시가 뜬다',
     /직접 선택/.test(await page.textContent('#blockList')));

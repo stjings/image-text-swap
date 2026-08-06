@@ -4,9 +4,43 @@
  * 문제가 없다. PLAN.md 13장의 폰트 라이선스 리스크는 이 선택으로 닫힌다.
  * 브랜드 전용 폰트를 추가할 때는 그 폰트의 라이선스를 별도로 확인해야 한다.
  *
- * 파일은 Google Fonts의 korean 서브셋 TTF를 woff2로 변환한 것이다.
+ * 출처
+ *   SUIT        github.com/sun-typeface/SUIT      (한글 약 2,668자)
+ *   Pretendard  github.com/orioncactus/pretendard (subset, 한글 약 2,780자)
+ *   그 외        Google Fonts korean 서브셋 TTF 를 woff2 로 변환
+ *
+ * SUIT·Pretendard 는 디자인팀이 실제로 쓰는 폰트다. 후보에 정답이 있어야
+ * 자동판별이 의미를 갖는다(PLAN.md 7-7).
  */
 
+/* ---- 디자인팀 사용 폰트 ---- */
+
+@font-face { font-family: 'SUIT'; font-weight: 400; font-display: block;
+  src: url('./SUIT-400.woff2') format('woff2'); }
+@font-face { font-family: 'SUIT'; font-weight: 500; font-display: block;
+  src: url('./SUIT-500.woff2') format('woff2'); }
+@font-face { font-family: 'SUIT'; font-weight: 600; font-display: block;
+  src: url('./SUIT-600.woff2') format('woff2'); }
+@font-face { font-family: 'SUIT'; font-weight: 700; font-display: block;
+  src: url('./SUIT-700.woff2') format('woff2'); }
+@font-face { font-family: 'SUIT'; font-weight: 800; font-display: block;
+  src: url('./SUIT-800.woff2') format('woff2'); }
+@font-face { font-family: 'SUIT'; font-weight: 900; font-display: block;
+  src: url('./SUIT-900.woff2') format('woff2'); }
+@font-face { font-family: 'Pretendard'; font-weight: 400; font-display: block;
+  src: url('./Pretendard-400.woff2') format('woff2'); }
+@font-face { font-family: 'Pretendard'; font-weight: 500; font-display: block;
+  src: url('./Pretendard-500.woff2') format('woff2'); }
+@font-face { font-family: 'Pretendard'; font-weight: 600; font-display: block;
+  src: url('./Pretendard-600.woff2') format('woff2'); }
+@font-face { font-family: 'Pretendard'; font-weight: 700; font-display: block;
+  src: url('./Pretendard-700.woff2') format('woff2'); }
+@font-face { font-family: 'Pretendard'; font-weight: 800; font-display: block;
+  src: url('./Pretendard-800.woff2') format('woff2'); }
+@font-face { font-family: 'Pretendard'; font-weight: 900; font-display: block;
+  src: url('./Pretendard-900.woff2') format('woff2'); }
+
+/* ---- 그 외 후보 ---- */
 @font-face { font-family: 'Noto Sans KR'; font-weight: 400; font-display: block;
   src: url('./NotoSansKR-400.woff2') format('woff2'); }
 @font-face { font-family: 'Noto Sans KR'; font-weight: 700; font-display: block;
