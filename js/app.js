@@ -21,6 +21,9 @@ const el = {
   dirtyCount: $('dirtyCount'), regionsBtn: $('regionsBtn'),
   toggleBtn: $('toggleBtn'), downloadBtn: $('downloadBtn'), notes: $('notes'),
   fontSelect: $('fontSelect'),
+  localFontBtn: $('localFontBtn'), lfPanel: $('lfPanel'), lfBackdrop: $('lfBackdrop'),
+  lfClose: $('lfClose'), lfAdded: $('lfAdded'), lfName: $('lfName'), lfAdd: $('lfAdd'),
+  lfMsg: $('lfMsg'), lfScan: $('lfScan'), lfFilter: $('lfFilter'), lfList: $('lfList'),
 };
 
 /** 앱 상태 (PLAN.md 10장). */
@@ -587,18 +590,163 @@ el.editorText.addEventListener('keydown', (e) => {
 // 같은 것을 정하고 있어 상단에 둘 이유가 없었다.
 // 드롭다운에는 자동판별 후보가 아닌 폰트도 넣는다. 자동판별을 좁힌 것과
 // 사용자가 고를 수 있는 폭을 좁히는 것은 다른 문제다.
-el.fontSelect.innerHTML = '<option value="auto">자동판별</option>'
-  + FontMatch.ALL.map((f, i) =>
-    `<option value="${i}">${FontMatch.label(f)}${i >= FontMatch.CANDIDATES.length ? ' (판별 제외)' : ''}</option>`).join('');
+// 목록은 로컬 폰트를 등록/해제할 때마다 다시 그린다. 고르고 있던 항목은
+// 인덱스가 아니라 이름으로 되찾는다 — 목록이 바뀌면 인덱스는 의미가 없다.
+let fontOptions = [];
+function renderFontOptions() {
+  const keep = state.selectedFont ? FontMatch.label(state.selectedFont) : null;
+  fontOptions = FontMatch.all();
+  el.fontSelect.innerHTML = '<option value="auto">자동판별</option>'
+    + fontOptions.map((f, i) => `<option value="${i}">${escapeHtml(FontMatch.label(f))}`
+      + `${f.excluded ? ' (판별 제외)' : ''}</option>`).join('');
+
+  if (keep) {
+    const i = fontOptions.findIndex((f) => FontMatch.label(f) === keep);
+    if (i >= 0) { el.fontSelect.value = String(i); state.selectedFont = fontOptions[i]; return; }
+    // 고르고 있던 로컬 폰트를 방금 뺐다면 자동판별로 되돌린다.
+    state.fontMode = 'auto';
+    state.selectedFont = null;
+  }
+  el.fontSelect.value = 'auto';
+}
+renderFontOptions();
 
 el.fontSelect.addEventListener('change', async () => {
   const v = el.fontSelect.value;
   state.fontMode = v === 'auto' ? 'auto' : 'manual';
-  state.selectedFont = v === 'auto' ? null : FontMatch.ALL[+v];
+  state.selectedFont = v === 'auto' ? null : fontOptions[+v];
   renderBlockList();
   renderEditor();
   await refreshResult();
 });
+
+/* ---------------- 내 PC 폰트 ---------------- */
+
+/** 등록 목록이 바뀌면 후보·드롭다운을 갱신하고, 필요하면 다시 판별한다. */
+async function applyLocalFonts({redetect} = {}) {
+  FontMatch.setLocal(LocalFont.list());
+  renderFontOptions();
+  renderLocalAdded();
+  if (!redetect || !state.imageData || !state.blocks.length || state.analyzing) return;
+  state.analyzing = true;
+  try {
+    setStatus('폰트 다시 판별 중…');
+    await FontMatch.detectAll(state.imageData, state.blocks, (i, n) => {
+      setStatus(`폰트 다시 판별 중… ${i + 1} / ${n}`);
+    });
+    setStatus(null);
+  } finally {
+    state.analyzing = false;
+  }
+  renderBlockList();
+  renderEditor();
+  await refreshResult();
+}
+
+function renderLocalAdded() {
+  const fonts = LocalFont.list();
+  el.lfAdded.innerHTML = fonts.length
+    ? fonts.map((f) => `<span class="lf-chip">${escapeHtml(f.name)}`
+        + `<button type="button" data-ps="${escapeHtml(f.ps)}" aria-label="제거">✕</button></span>`).join('')
+    : '<p class="dim">아직 없습니다. 아래에서 추가하세요.</p>';
+}
+
+function lfMsg(text, isError = false) {
+  el.lfMsg.hidden = !text;
+  el.lfMsg.textContent = text || '';
+  el.lfMsg.classList.toggle('err', isError);
+}
+
+function openLocalFonts() {
+  renderLocalAdded();
+  lfMsg(null);
+  el.lfPanel.hidden = false;
+  el.lfBackdrop.hidden = false;
+  el.lfName.focus();
+}
+function closeLocalFonts() {
+  el.lfPanel.hidden = true;
+  el.lfBackdrop.hidden = true;
+}
+
+el.localFontBtn.addEventListener('click', openLocalFonts);
+el.lfClose.addEventListener('click', closeLocalFonts);
+el.lfBackdrop.addEventListener('click', closeLocalFonts);
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !el.lfPanel.hidden) closeLocalFonts();
+});
+
+async function addLocalFont(ps, name, group) {
+  try {
+    await LocalFont.add(ps, name, group);
+    lfMsg(`"${name || ps}" 을(를) 후보에 넣었습니다.`);
+    await applyLocalFonts({redetect: true});
+    return true;
+  } catch (e) {
+    lfMsg(e.message, true);
+    return false;
+  }
+}
+
+el.lfAdd.addEventListener('click', async () => {
+  const v = el.lfName.value.trim();
+  if (!v) return;
+  if (await addLocalFont(v)) el.lfName.value = '';
+});
+el.lfName.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') { e.preventDefault(); el.lfAdd.click(); }
+});
+
+el.lfAdded.addEventListener('click', async (e) => {
+  const btn = e.target.closest('button[data-ps]');
+  if (!btn) return;
+  LocalFont.remove(btn.dataset.ps);
+  lfMsg(null);
+  await applyLocalFonts({redetect: true});
+});
+
+// 열거 결과는 수백 개가 나온다. 검색으로 좁혀야 쓸 수 있다.
+let lfScanned = [];
+function renderLocalList() {
+  const q = el.lfFilter.value.trim().toLowerCase();
+  const hit = (q ? lfScanned.filter((f) => f.name.toLowerCase().includes(q)
+    || f.family.toLowerCase().includes(q) || f.ps.toLowerCase().includes(q)) : lfScanned).slice(0, 300);
+  el.lfList.innerHTML = hit.length
+    ? hit.map((f) => `<button type="button" class="lf-item${LocalFont.has(f.ps) ? ' on' : ''}"`
+        + ` data-ps="${escapeHtml(f.ps)}" data-name="${escapeHtml(f.name)}"`
+        + ` data-family="${escapeHtml(f.family)}">${escapeHtml(f.name)}</button>`).join('')
+    : '<p class="dim">검색 결과가 없습니다.</p>';
+}
+
+el.lfScan.addEventListener('click', async () => {
+  try {
+    lfScanned = await LocalFont.enumerate();
+    if (!lfScanned.length) {
+      lfMsg('설치된 폰트를 하나도 읽지 못했습니다. 아래에 이름을 직접 적어 넣으세요.', true);
+      el.lfName.focus();
+      return;
+    }
+    el.lfFilter.hidden = false;
+    el.lfList.hidden = false;
+    lfMsg(`설치된 폰트 ${lfScanned.length}개. 검색해서 고르세요.`);
+    renderLocalList();
+  } catch (e) {
+    lfMsg(e.message, true);
+    el.lfName.focus();
+  }
+});
+el.lfFilter.addEventListener('input', renderLocalList);
+el.lfList.addEventListener('click', async (e) => {
+  const it = e.target.closest('.lf-item');
+  if (!it) return;
+  const {ps, name, family} = it.dataset;
+  if (LocalFont.has(ps)) { LocalFont.remove(ps); await applyLocalFonts({redetect: true}); }
+  else await addLocalFont(ps, name, family);
+  renderLocalList();
+});
+
+// 지난번에 고른 폰트를 다시 등록한다. 권한이 필요 없는 경로라 조용히 된다.
+LocalFont.restore().then(({ok}) => { if (ok) applyLocalFonts(); });
 
 el.regionsBtn.addEventListener('click', () => {
   state.showAllRegions = !state.showAllRegions;

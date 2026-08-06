@@ -42,9 +42,25 @@ const FontMatch = (() => {
     {family: 'Jua', weight: 400},
   ];
 
-  const ALL = CANDIDATES.concat(EXTRA);
+  /**
+   * 사용자 PC에서 불러온 폰트(localfont.js). 자동판별 후보에 들어간다.
+   *
+   * 여기에 넣지 않고 '직접 선택'으로만 쓰게 하면 반쪽이다. 헤드라인만 유료
+   * 폰트고 본문은 SUIT 인 이미지가 흔한데, 직접 선택은 전 블록에 같은 폰트를
+   * 씌우므로 그런 이미지를 다룰 수 없다. 후보에 있어야 블록마다 갈린다.
+   */
+  let local = [];
+  const setLocal = (fonts) => { local = fonts.slice(); };
 
-  const label = (f) => `${f.family} ${f.weight}`;
+  /** 자동판별 후보 = 번들 세 패밀리 + 사용자가 등록한 로컬 폰트. */
+  const candidates = () => CANDIDATES.concat(local);
+
+  /** 드롭다운용 전체 목록. excluded 는 자동판별에 쓰이지 않는다는 표시다. */
+  const all = () => candidates().concat(EXTRA.map((f) => ({...f, excluded: true})));
+
+  // 로컬 폰트는 가족 이름이 내부 별칭이라 그대로 보여 줄 수 없다. 표시 이름을
+  // 따로 들고 있으면 그것을 쓴다.
+  const label = (f) => f.label || `${f.family} ${f.weight}`;
   const GAP_LOW = 0.04;   // 1위–2위 격차가 이보다 작으면 확신이 낮다고 본다
   const VOTE_MIN = 4;     // 패밀리 다수결에 필요한 최소 블록 수
   const ADJUST_MAX_DROP = 0.05;  // 다수결로 바꿀 때 감수할 최대 점수 하락
@@ -145,7 +161,7 @@ const FontMatch = (() => {
     const ctx = canvas.getContext('2d', {willReadFrequently: true});
 
     const scores = [];
-    for (const font of CANDIDATES) {
+    for (const font of candidates()) {
       if (!renderSilhouette(ctx, w, h, block, font)) continue;
       const d = ctx.getImageData(0, 0, w, h).data;
       const cand = new Uint8Array(w * h);
@@ -159,9 +175,15 @@ const FontMatch = (() => {
     return {
       family: scores[0].family, weight: scores[0].weight,
       score: scores[0].score, gap, lowConfidence: gap < GAP_LOW,
+      label: scores[0].label, group: scores[0].group,
       // 전체 순위를 돌려준다. UI 는 앞의 몇 개만 쓰지만, 검증 도구가 특정 폰트의
       // 점수를 찾아야 하므로 잘라서 주면 비교가 편향된다.
-      ranking: scores.map((s) => ({font: label(s), family: s.family, weight: s.weight, score: s.score})),
+      // group 은 다수결이 묶을 단위다. 로컬 폰트는 굵기마다 가족 이름(별칭)이
+      // 달라지므로, family 로 묶으면 같은 폰트의 Regular/Bold 가 남남이 된다.
+      ranking: scores.map((s) => ({
+        font: label(s), family: s.family, weight: s.weight,
+        label: s.label, group: s.group || s.family, score: s.score,
+      })),
     };
   }
 
@@ -189,7 +211,7 @@ const FontMatch = (() => {
     for (const f of found) {
       const best = new Map();
       for (const r of f.ranking) {
-        if (!best.has(r.family) || best.get(r.family) < r.score) best.set(r.family, r.score);
+        if (!best.has(r.group) || best.get(r.group) < r.score) best.set(r.group, r.score);
       }
       for (const [k, v] of best) fam.set(k, (fam.get(k) || 0) + v);
     }
@@ -199,14 +221,16 @@ const FontMatch = (() => {
 
     for (const b of blocks) {
       const f = b.detectedFont;
-      if (!f || !f.lowConfidence || f.family === dominant) continue;
-      const pick = f.ranking.find((r) => r.family === dominant);
+      if (!f || !f.lowConfidence || (f.group || f.family) === dominant) continue;
+      const pick = f.ranking.find((r) => r.group === dominant);
       // 점수를 크게 깎으면서까지 맞추지는 않는다. 정말 다른 폰트일 수 있다.
       if (!pick || f.score - pick.score > ADJUST_MAX_DROP) continue;
       b.detectedFont = {...f, family: pick.family, weight: pick.weight,
+                        label: pick.label, group: pick.group,
                         score: pick.score, adjusted: true};
     }
   }
 
-  return {CANDIDATES, EXTRA, ALL, detectFor, detectAll, loadAll, label, GAP_LOW};
+  return {CANDIDATES, EXTRA, candidates, all, setLocal,
+          detectFor, detectAll, loadAll, label, GAP_LOW};
 })();

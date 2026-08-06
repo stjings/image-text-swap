@@ -24,6 +24,8 @@
       <span>폰트</span>
       <select id="fontSelect" aria-label="폰트" disabled></select>
     </label>
+    <button id="localFontBtn" class="btn btn-ghost" type="button"
+            title="이 PC에 설치된 폰트를 판별 후보에 추가합니다">＋ 내 PC 폰트</button>
 
     <span class="sep"></span>
 
@@ -104,10 +106,45 @@
   </dl>
 </footer>
 
+<!-- 내 PC 폰트 고르기.
+     유료 폰트는 저장소에 넣을 수 없으므로, 산 사람의 PC에 설치된 것을 그
+     자리에서 불러 쓴다. 폰트 파일은 어디로도 전송되지 않는다. -->
+<div id="lfBackdrop" class="lf-backdrop" hidden></div>
+<section id="lfPanel" class="lf-panel" hidden aria-label="내 PC 폰트">
+  <div class="lf-head">
+    <span class="pane-title">내 PC 폰트</span>
+    <button id="lfClose" class="iconbtn" type="button" aria-label="닫기">✕</button>
+  </div>
+
+  <p class="lf-note">
+    여기서 고른 폰트는 <b>자동판별 후보</b>에 들어갑니다. 폰트 파일은 이 PC 밖으로
+    나가지 않고, 앱에도 저장되지 않습니다. 이미지를 받는 다른 사람에게는 결과
+    그림만 전달되므로 폰트가 함께 배포되지 않습니다.
+  </p>
+
+  <div id="lfAdded" class="lf-added"></div>
+
+  <div class="lf-row">
+    <button id="lfScan" class="btn btn-ghost" type="button">설치된 폰트 목록에서 고르기</button>
+  </div>
+  <input id="lfFilter" type="search" placeholder="목록 검색 (예: 산돌, Sandoll)"
+         aria-label="폰트 검색" hidden>
+  <div id="lfList" class="lf-list" hidden></div>
+
+  <p class="lf-sub">이름을 안다면 바로 적어 넣어도 됩니다.</p>
+  <div class="lf-row">
+    <input id="lfName" type="text" placeholder="폰트 이름 (예: Sandoll GyeokdongGothic)"
+           aria-label="폰트 이름">
+    <button id="lfAdd" class="btn" type="button">추가</button>
+  </div>
+  <p id="lfMsg" class="lf-msg" hidden></p>
+</section>
+
 <script src="./vendor/tesseract/tesseract.min.js"></script>
 <script src="./js/detect.js"></script>
 <script src="./js/ocr.js"></script>
 <script src="./js/compose.js"></script>
+<script src="./js/localfont.js"></script>
 <script src="./js/fontmatch.js"></script>
 <script src="./js/app.js"></script>
 </body>

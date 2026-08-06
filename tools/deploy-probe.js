@@ -86,8 +86,9 @@ function pngInfo(buf) {
     const app = window.__app;
     app.selectBlock('b1');
     app.state.blocks.find((b) => b.id === 'b1').draft = '2028 합격을 위한 헌법\n정답은, 써니 뿐입니다.';
-    app.saveBlock();
-    await app.runCompose();
+    // 저장이 곧 합성이다. 기다리지 않고 runCompose 를 또 부르면 composing
+    // 가드에 걸려 즉시 돌아오고, 아직 합성이 안 끝난 상태를 검사하게 된다.
+    await app.saveBlock();
   });
   check('합성 결과가 생긴다', await page.evaluate(() => !!window.__app.state.result));
   check('다운로드 버튼이 열린다', await page.getAttribute('#downloadBtn', 'disabled') === null);

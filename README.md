@@ -40,6 +40,7 @@ js/detect.js    배경 유형 판정 · 잉크 검출 · 블록 분리 · 색 �
 js/ocr.js       Tesseract.js 래퍼 (전처리 · 인식)
 js/compose.js   제거 · 렌더 · 자간 · 합성 · 오버플로
 js/fontmatch.js 폰트 후보 렌더 · 실루엣 비교 · 자동판별
+js/localfont.js 사용자 PC에 설치된 폰트를 후보로 등록
 fonts/          웹폰트 25종 (woff2) + fonts.css
 vendor/         Tesseract 자산 자체 호스팅 (약 17MB)
 assets/         기준 샘플 이미지
@@ -59,6 +60,7 @@ NODE_PATH=$(npm root -g) node tools/edit-probe.js   # 선택·편집·저장 상
 NODE_PATH=$(npm root -g) node tools/compose-probe.js # 합성·오버플로·픽셀 보존 검사
 NODE_PATH=$(npm root -g) node tools/font-probe.js    # 폰트 판별·직접 선택 검사
 NODE_PATH=$(npm root -g) node tools/deploy-probe.js  # 배포물·하위경로·다운로드 검사
+NODE_PATH=$(npm root -g) node tools/localfont-probe.js # 내 PC 폰트 등록·후보 편입 검사
 NODE_PATH=$(npm root -g) node spike/run.js          # M0 파이프라인 재실행
 python3 tools/tier-probe.py                         # 배경 유형 판정 검증
 ```
@@ -81,5 +83,13 @@ python3 tools/tier-probe.py                         # 배경 유형 판정 검�
 자동판별 후보는 디자인팀이 실제로 쓰는 **SUIT · Pretendard · Noto Sans KR** 세
 패밀리(15종)다. 그 외 10종은 직접 선택으로만 고를 수 있다. 등록된 폰트는 전부
 **SIL Open Font License 1.1** 이다. 임베드·재배포·상업적
-이용에 제약이 없어 외부 공개 배포가 가능하다. 브랜드 전용 폰트를 추가할 때는
-그 폰트의 라이선스를 별도로 확인해야 한다. 자세한 목록은 [PLAN.md 8-1](./PLAN.md).
+이용에 제약이 없어 외부 공개 배포가 가능하다. 자세한 목록은 [PLAN.md 8-1](./PLAN.md).
+
+### 유료 폰트 (산돌 등)
+
+번들하지 않는다. 저장소에 넣으면 재배포가 되고, 글자 모양을 보고 다시 그리는 것은
+복제본이다. 대신 상단바의 **`＋ 내 PC 폰트`** 로 **이 PC에 설치된 폰트**를 등록하면
+자동판별 후보에 들어간다. 폰트 파일은 네트워크로 오가지 않는다(요청 0건으로 확인 —
+[PLAN.md 부록 I](./PLAN.md#부록-i-내-pc-폰트-결과-v14)). 폰트를 산 사람의 PC에서만
+맞고, 없는 사람에게는 후보에 뜨지 않는다. 결과 이미지는 그림이라 누구에게나 같게
+보이므로 편집하는 사람만 폰트를 갖고 있으면 된다. 설계 근거는 [PLAN.md 8-2](./PLAN.md).

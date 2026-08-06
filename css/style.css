@@ -29,6 +29,11 @@
 
 * { box-sizing: border-box; }
 
+/* [hidden] 의 UA 규칙(display:none)은 우선순위가 낮아 display 를 지정한 클래스에
+ * 진다. 그러면 숨긴 요소가 자리를 차지하거나 클릭을 가로챈다(.notes·.lf-panel
+ * 에서 실제로 그랬다). 한 번에 못 박아 둔다. */
+[hidden] { display: none !important; }
+
 /* 상단(조작)과 하단(정보)은 고정, 가운데만 스크롤한다. */
 body {
   margin: 0;
@@ -293,3 +298,53 @@ body {
 .fontinfo { margin: 4px 0 0; font-size: 11px; color: var(--muted); }
 .fontinfo .lowgap { color: #b45309; }
 .editor-orig .fontinfo { margin-top: 4px; }
+
+/* ---------- 내 PC 폰트 패널 ---------- */
+.lf-backdrop {
+  position: fixed; inset: 0; z-index: 40;
+  background: rgba(16, 24, 40, .35);
+}
+.lf-panel {
+  position: fixed; z-index: 41; top: 64px; left: 50%; transform: translateX(-50%);
+  width: min(520px, calc(100vw - 32px)); max-height: calc(100vh - 96px);
+  display: flex; flex-direction: column; gap: 10px;
+  padding: 14px; border: 1px solid var(--line); border-radius: var(--radius);
+  background: var(--panel); box-shadow: var(--shadow);
+}
+.lf-head { display: flex; align-items: center; justify-content: space-between; }
+.lf-note { margin: 0; font-size: 11px; line-height: 1.6; color: var(--muted); }
+.lf-note b { color: var(--text); }
+.lf-added { display: flex; flex-wrap: wrap; gap: 6px; }
+.lf-added .dim { margin: 0; font-size: 12px; }
+.lf-chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 3px 6px 3px 9px; border-radius: 999px;
+  font-size: 12px; background: var(--accent-weak); color: var(--accent);
+}
+.lf-chip button {
+  border: 0; background: none; cursor: pointer; padding: 0 2px;
+  color: inherit; font-size: 12px; line-height: 1;
+}
+.lf-row { display: flex; gap: 8px; }
+.lf-row input { flex: 1; }
+.lf-panel input {
+  padding: 6px 8px; font-size: 13px;
+  border: 1px solid var(--line); border-radius: 8px;
+  background: var(--panel); color: var(--text);
+}
+.lf-sub { margin: 2px 0 -4px; font-size: 11px; color: var(--muted); }
+.lf-msg { margin: 0; font-size: 11px; color: var(--muted); }
+.lf-msg.err { color: #b45309; font-weight: 700; }
+.lf-list {
+  flex: 1; min-height: 80px; overflow: auto;
+  border: 1px solid var(--line); border-radius: 8px; padding: 4px;
+}
+.lf-list .dim { margin: 8px; font-size: 12px; }
+.lf-item {
+  display: block; width: 100%; text-align: left; cursor: pointer;
+  padding: 5px 8px; border: 0; border-radius: 6px;
+  background: none; color: var(--text); font-size: 13px;
+}
+.lf-item:hover { background: var(--bg); }
+.lf-item.on { background: var(--accent-weak); color: var(--accent); font-weight: 700; }
+.lf-item.on::after { content: ' ✓'; }
