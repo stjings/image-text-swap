@@ -9,13 +9,27 @@
 </head>
 <body>
 
+<!-- 조작은 전부 여기 모아 고정한다. 스크롤과 무관하게 항상 같은 자리에 있다. -->
 <header class="topbar">
   <h1>이미지 텍스트 교체 툴</h1>
-  <div class="topbar-right">
-    <span id="fileName" class="filename"></span>
+
+  <div class="tools">
     <button id="pickBtn" class="btn" type="button">파일 선택</button>
-    <button id="resetBtn" class="btn btn-ghost" type="button" hidden>초기화</button>
+    <span id="fileName" class="filename"></span>
     <input id="fileInput" type="file" accept="image/png,image/jpeg" hidden>
+
+    <span class="sep"></span>
+
+    <label class="field">
+      <span>폰트</span>
+      <select id="fontSelect" aria-label="폰트" disabled></select>
+    </label>
+
+    <span class="sep"></span>
+
+    <span id="dirtyCount" class="dirtycount"></span>
+    <button id="downloadBtn" class="btn btn-primary" type="button" disabled>PNG 다운로드</button>
+    <button id="resetBtn" class="btn btn-ghost" type="button" hidden>초기화</button>
   </div>
 </header>
 
@@ -23,11 +37,15 @@
 
   <section class="pane pane-main">
     <div class="pane-head">
-      <span class="pane-title">미리보기</span>
       <div class="seg" id="bgToggle" role="group" aria-label="미리보기 배경">
         <button type="button" data-bg="checker" class="on">체커보드</button>
         <button type="button" data-bg="light">흰색</button>
         <button type="button" data-bg="dark">검정</button>
+      </div>
+      <div class="viewtools">
+        <button id="regionsBtn" class="btn btn-toggle on" type="button" disabled
+                title="편집 가능한 영역을 모두 표시합니다">영역 표시</button>
+        <button id="toggleBtn" class="btn" type="button" disabled>원본 보기</button>
       </div>
     </div>
 
@@ -44,7 +62,6 @@
     </div>
 
     <p id="notes" class="notes" hidden></p>
-    <dl id="imgInfo" class="info" hidden></dl>
   </section>
 
   <aside class="pane pane-side">
@@ -80,19 +97,11 @@
 
 </main>
 
+<!-- 정보는 읽기용이므로 아래에 고정한다. 이미지 높이와 무관하게 자리가 안 움직인다. -->
 <footer class="bottombar">
-  <fieldset id="fontMode" class="fontmode" disabled>
-    <legend class="sr-only">폰트 처리</legend>
-    <label><input type="radio" name="fontmode" value="auto" checked> 자동판별에 맡기기</label>
-    <label><input type="radio" name="fontmode" value="manual"> 직접 선택</label>
-    <select id="fontSelect" aria-label="폰트 선택" disabled></select>
-  </fieldset>
-  <div class="bottom-right">
-    <span id="dirtyCount" class="dirtycount"></span>
-    <button id="composeBtn" class="btn" type="button" disabled>수정 요청</button>
-    <button id="toggleBtn" class="btn btn-ghost" type="button" disabled>원본 / 결과</button>
-    <button id="downloadBtn" class="btn btn-primary" type="button" disabled>PNG 다운로드</button>
-  </div>
+  <dl id="imgInfo" class="info">
+    <div><dt>이미지</dt><dd class="dim">아직 없음</dd></div>
+  </dl>
 </footer>
 
 <script src="./vendor/tesseract/tesseract.min.js"></script>

@@ -18,9 +18,9 @@ const el = {
   editor: $('editor'), editorTitle: $('editorTitle'), editorOrig: $('editorOrig'),
   editorText: $('editorText'), editorHint: $('editorHint'), editorClose: $('editorClose'),
   saveBtn: $('saveBtn'), revertBtn: $('revertBtn'),
-  dirtyCount: $('dirtyCount'), composeBtn: $('composeBtn'),
+  dirtyCount: $('dirtyCount'), regionsBtn: $('regionsBtn'),
   toggleBtn: $('toggleBtn'), downloadBtn: $('downloadBtn'), notes: $('notes'),
-  fontMode: $('fontMode'), fontSelect: $('fontSelect'),
+  fontSelect: $('fontSelect'),
 };
 
 /** 앱 상태 (PLAN.md 10장). */
@@ -34,9 +34,10 @@ const state = {
   selectedId: null,
   filter: 'all',
   timing: null,
-  result: null,        // 합성 결과 canvas (M4)
-  showing: 'original',  // 'original' | 'result'
+  result: null,          // 합성 결과 canvas
+  showing: 'original',   // 'original' | 'result'
   composeNotes: [],
+  showAllRegions: true,  // 영역 표시 토글
   fontMode: 'auto',
   selectedFont: null,
   analyzing: false,
@@ -50,7 +51,7 @@ const CONF_LOW = 70;
 // 자동판별이 실패한 블록에 쓰는 최후 수단.
 const DEFAULT_FONT = {family: 'Noto Sans KR', weight: 700};
 
-/** 블록에 쓸 폰트. 직접 선택 모드면 전 블록에 같은 폰트를 쓴다. */
+/** 블록에 쓸 폰트. 직접 선택이면 전 블록에 같은 폰트를 쓴다. */
 function fontFor(b) {
   if (state.fontMode === 'manual' && state.selectedFont) return state.selectedFont;
   return b.detectedFont || DEFAULT_FONT;
@@ -152,7 +153,8 @@ async function runAnalysis() {
     state.timing.font = Math.round(performance.now() - t2);
     renderBlockList();
     renderEditor();
-    el.fontMode.disabled = false;
+    el.fontSelect.disabled = false;
+    el.regionsBtn.disabled = false;
     setStatus(null);
   } catch (e) {
     setStatus(`분석 실패: ${e.message}`, true);
@@ -181,6 +183,10 @@ function setStatus(text, isError = false) {
 }
 
 function renderInfo(file) {
+  if (!file || !state.stats) {
+    el.info.innerHTML = '<div><dt>이미지</dt><dd class="dim">아직 없음</dd></div>';
+    return;
+  }
   const {total, clear, semi, opaque} = state.stats;
   const pct = (n) => (n / total * 100).toFixed(1) + '%';
   const fmt = file.type === 'image/png' ? 'PNG' : 'JPG';
@@ -193,15 +199,19 @@ function renderInfo(file) {
   ];
   el.info.innerHTML = rows.map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join('')
     + (state.hasAlpha ? '' : `<div><dt>알파 채널</dt><dd class="warn">없음</dd></div>`);
-  el.info.hidden = false;
 }
 
 /** 블록 경계를 이미지 위에 겹쳐 그린다.
  *  캔버스는 CSS로만 축소되므로 % 좌표를 쓰면 확대/축소와 무관하게 맞는다. */
 function renderOverlay() {
+  // 원본과 결과를 눈으로 비교할 때 테두리가 덮여 있으면 글자를 못 본다.
+  // '영역 표시'를 끄면 선택한 블록 하나만 남고, 선택까지 풀면 완전히 깨끗해진다.
   const W = el.canvas.width, H = el.canvas.height;
   const shown = new Set(visibleBlocks().map((b) => b.id));
-  el.overlay.innerHTML = state.blocks.map((b) => {
+  const draw = state.showAllRegions
+    ? state.blocks
+    : state.blocks.filter((b) => b.id === state.selectedId);
+  el.overlay.innerHTML = draw.map((b) => {
     const {x0, y0, x1, y1} = b.bbox;
     const style = `left:${x0 / W * 100}%;top:${y0 / H * 100}%;`
       + `width:${(x1 - x0) / W * 100}%;height:${(y1 - y0) / H * 100}%`;
@@ -273,6 +283,7 @@ function selectBlock(id, {scroll = true} = {}) {
   state.selectedId = id;
   renderBlockList();
   renderEditor();
+  renderOverlay();      // '영역 표시'를 끈 상태에서는 선택이 곧 표시 대상이다
   if (scroll && id) {
     const node = el.blockList.querySelector(`.item[data-id="${id}"]`);
     if (node) node.scrollIntoView({block: 'nearest'});
@@ -323,7 +334,7 @@ function saveBlock() {
   renderBlockList();
   renderEditor();
   renderDirtyCount();
-  invalidateResult();
+  return refreshResult();     // 저장이 곧 결과 보기다
 }
 
 function revertBlock() {
@@ -335,24 +346,28 @@ function revertBlock() {
   renderBlockList();
   renderEditor();
   renderDirtyCount();
-  invalidateResult();
-}
-
-/** 문구가 바뀌면 이전 합성 결과는 낡은 것이다. 원본 보기로 되돌린다. */
-function invalidateResult() {
-  if (!state.result) return;
-  state.result = null;
-  state.composeNotes = [];
-  showResult(false);
-  renderNotes();
+  return refreshResult();
 }
 
 function renderDirtyCount() {
   const n = state.blocks.filter((b) => b.dirty).length;
   const un = state.blocks.filter(isUnsaved).length;
-  el.dirtyCount.textContent = n ? `수정된 블록 ${n}개${un ? ` (미저장 ${un})` : ''}` : '';
-  el.composeBtn.disabled = !n || state.analyzing;
-  el.composeBtn.title = n ? '' : '수정된 블록이 없습니다';
+  el.dirtyCount.textContent = n ? `수정 ${n}개${un ? ` · 미저장 ${un}` : ''}` : '';
+}
+
+/**
+ * 결과를 현재 편집 상태로 다시 만든다.
+ * 수정된 블록이 하나도 없으면 결과라는 게 없으므로 원본으로 돌아간다.
+ */
+async function refreshResult() {
+  if (!state.blocks.some((b) => b.dirty)) {
+    state.result = null;
+    state.composeNotes = [];
+    renderNotes();
+    showResult(false);
+    return;
+  }
+  await runCompose();
 }
 
 /* ---------------- 합성 (M4) ---------------- */
@@ -360,8 +375,7 @@ function renderDirtyCount() {
 async function runCompose() {
   if (state.composing) return;
   state.composing = true;
-  el.composeBtn.disabled = true;
-  setStatus('합성 중…');
+  setStatus('반영 중…');
   await raf();
   try {
     const t0 = performance.now();
@@ -373,7 +387,7 @@ async function runCompose() {
     renderNotes();
     setStatus(null);
   } catch (e) {
-    setStatus(`합성 실패: ${e.message}`, true);
+    setStatus(`반영 실패: ${e.message}`, true);
     console.error(e);
   } finally {
     state.composing = false;
@@ -389,10 +403,10 @@ function showResult(on) {
   ctx.clearRect(0, 0, el.canvas.width, el.canvas.height);
   if (on) ctx.drawImage(state.result, 0, 0);
   else ctx.putImageData(state.imageData, 0, 0);
-  el.overlay.style.display = on ? 'none' : '';
   el.toggleBtn.disabled = !state.result;
   el.toggleBtn.textContent = on ? '원본 보기' : '결과 보기';
   el.downloadBtn.disabled = !state.result;
+  renderOverlay();
 }
 
 /* ---------------- 다운로드 (M6) ---------------- */
@@ -458,20 +472,21 @@ function reset() {
   Object.assign(state, {
     fileName: null, sourceImage: null, imageData: null, stats: null,
     blocks: [], selectedId: null, analyzing: false, filter: 'all',
-    result: null, showing: 'original', composeNotes: [],
+    result: null, showing: 'original', composeNotes: [], showAllRegions: true,
   });
+  el.regionsBtn.classList.add('on');
   el.notes.hidden = true;
-  el.fontMode.disabled = true;
-  el.overlay.style.display = '';
+  el.fontSelect.disabled = true;
+  el.regionsBtn.disabled = true;
   el.toggleBtn.disabled = true;
-  el.toggleBtn.textContent = '원본 / 결과';
+  el.toggleBtn.textContent = '원본 보기';
   el.downloadBtn.disabled = true;
   el.editor.hidden = true;
   el.filterBar.hidden = true;
   el.dirtyCount.textContent = '';
   el.viewport.hidden = true;
   el.dropzone.hidden = false;
-  el.info.hidden = true;
+  renderInfo(null);
   el.resetBtn.hidden = true;
   el.fileName.textContent = '';
   el.fileInput.value = '';
@@ -554,25 +569,26 @@ el.editorText.addEventListener('keydown', (e) => {
 });
 /* ---------------- 폰트 (M5) ---------------- */
 
-el.fontSelect.innerHTML = FontMatch.CANDIDATES
-  .map((f, i) => `<option value="${i}">${FontMatch.label(f)}</option>`).join('');
+// 자동판별과 직접 선택을 드롭다운 하나로 합쳤다. 라디오 + 드롭다운 두 컨트롤이
+// 같은 것을 정하고 있어 상단에 둘 이유가 없었다.
+el.fontSelect.innerHTML = '<option value="auto">자동판별</option>'
+  + FontMatch.CANDIDATES.map((f, i) => `<option value="${i}">${FontMatch.label(f)}</option>`).join('');
 
-el.fontMode.addEventListener('change', (e) => {
-  if (e.target.name === 'fontmode') {
-    state.fontMode = e.target.value;
-    el.fontSelect.disabled = state.fontMode !== 'manual';
-    if (state.fontMode === 'manual' && !state.selectedFont) {
-      state.selectedFont = FontMatch.CANDIDATES[+el.fontSelect.value || 0];
-    }
-  } else if (e.target === el.fontSelect) {
-    state.selectedFont = FontMatch.CANDIDATES[+el.fontSelect.value];
-  }
+el.fontSelect.addEventListener('change', async () => {
+  const v = el.fontSelect.value;
+  state.fontMode = v === 'auto' ? 'auto' : 'manual';
+  state.selectedFont = v === 'auto' ? null : FontMatch.CANDIDATES[+v];
   renderBlockList();
   renderEditor();
-  invalidateResult();
+  await refreshResult();
 });
 
-el.composeBtn.addEventListener('click', runCompose);
+el.regionsBtn.addEventListener('click', () => {
+  state.showAllRegions = !state.showAllRegions;
+  el.regionsBtn.classList.toggle('on', state.showAllRegions);
+  renderOverlay();
+});
+
 el.toggleBtn.addEventListener('click', () => showResult(state.showing !== 'result'));
 el.downloadBtn.addEventListener('click', download);
 el.saveBtn.addEventListener('click', saveBlock);

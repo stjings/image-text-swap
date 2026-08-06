@@ -46,21 +46,28 @@ function check(name, ok, detail = '') {
     };
   });
 
+  // 블록 ID 는 검출 결과에 따라 달라진다. 실행 시점에 조건으로 고른다.
+  const TARGET = await page.evaluate(() =>
+    (window.__app.state.blocks.find((b) => !b.locked && /이벤트 기간/.test(b.originalText || ''))
+      || window.__app.state.blocks.find((b) => !b.locked)).id);
+  const THIRD = await page.evaluate(() =>
+    document.querySelectorAll('#blockList .item')[2].dataset.id);
+
   console.log('\n[선택]');
   await page.click('#blockList .item:nth-child(3)');
   let s = await snap();
-  check('목록 클릭으로 선택된다', s.selected === 'b2', s.selected);
+  check('목록 클릭으로 선택된다', s.selected === THIRD, s.selected);
   check('편집 패널이 열린다', s.editorHidden === false);
 
-  await page.click('.bk[data-id="b12"]');
+  await page.click(`.bk[data-id="${TARGET}"]`);
   s = await snap();
-  check('오버레이 클릭으로도 선택된다', s.selected === 'b12', s.selected);
+  check('오버레이 클릭으로도 선택된다', s.selected === TARGET, s.selected);
 
   console.log('\n[편집·저장]');
   const before = s.block.orig;
-  await page.fill('#editorText', '이벤트 기간 : ~9/30(화)까지');
+  await page.fill('#editorText', '바뀐 문구');
   s = await snap();
-  check('입력이 draft 에 반영된다', s.block.draft === '이벤트 기간 : ~9/30(화)까지');
+  check('입력이 draft 에 반영된다', s.block.draft === '바뀐 문구');
   check('아직 확정되지 않았다', s.block.edited === before && s.block.dirty === false);
   check('저장 버튼이 활성화된다', s.saveDisabled === false);
   check('미저장 표시가 뜬다', /미저장 1/.test(s.dirtyCount) === false && s.dirtyCount === '',
@@ -68,9 +75,9 @@ function check(name, ok, detail = '') {
 
   await page.click('#saveBtn');
   s = await snap();
-  check('저장하면 확정된다', s.block.edited === '이벤트 기간 : ~9/30(화)까지');
+  check('저장하면 확정된다', s.block.edited === '바뀐 문구');
   check('dirty 로 표시된다', s.block.dirty === true);
-  check('하단에 수정 개수가 나온다', /수정된 블록 1개/.test(s.dirtyCount), s.dirtyCount);
+  check('하단에 수정 개수가 나온다', /수정 1개/.test(s.dirtyCount), s.dirtyCount);
   check('저장 후 버튼이 비활성화된다', s.saveDisabled === true);
 
   console.log('\n[필터]');
@@ -86,7 +93,7 @@ function check(name, ok, detail = '') {
   await page.click('#filterBar button[data-filter="all"]');
 
   console.log('\n[되돌리기]');
-  await page.click('.bk[data-id="b12"]');
+  await page.click(`.bk[data-id="${TARGET}"]`);
   await page.click('#revertBtn');
   s = await snap();
   check('원문으로 되돌아간다', s.block.edited === before && s.block.draft === before);
@@ -105,16 +112,28 @@ function check(name, ok, detail = '') {
     console.log('  (잠긴 블록 없음 — 건너뜀)');
   }
 
+  console.log('\n[영역 표시 토글]');
+  const shownCount = () => page.evaluate(() => document.querySelectorAll('#overlay .bk').length);
+  const nAll = await page.evaluate(() => window.__app.state.blocks.length);
+  check('기본은 전체 표시', await shownCount() === nAll, `${await shownCount()}/${nAll}`);
+  await page.click('#regionsBtn');
+  check('끄면 선택한 블록만 남는다', await shownCount() === 1, String(await shownCount()));
+  await page.click('#editorClose');
+  check('선택까지 풀면 완전히 깨끗해진다', await shownCount() === 0, String(await shownCount()));
+  await page.click('#regionsBtn');
+
   console.log('\n[키보드]');
   await page.click('.topbar h1');           // 중립 영역 — 선택을 건드리지 않는다
   await page.click('#blockList .item:nth-child(1)');
   await page.keyboard.press('ArrowDown');
   await page.keyboard.press('ArrowDown');
   s = await snap();
-  check('방향키로 아래로 이동한다', s.selected === 'b2', s.selected);
+  const ids = await page.evaluate(() =>
+    [...document.querySelectorAll('#blockList .item')].map((n) => n.dataset.id));
+  check('방향키로 아래로 이동한다', s.selected === ids[2], s.selected);
   await page.keyboard.press('ArrowUp');
   s = await snap();
-  check('방향키로 위로 이동한다', s.selected === 'b1', s.selected);
+  check('방향키로 위로 이동한다', s.selected === ids[1], s.selected);
   await page.keyboard.press('Enter');
   check('Enter 로 입력창에 포커스가 간다',
     await page.evaluate(() => document.activeElement.id === 'editorText'));

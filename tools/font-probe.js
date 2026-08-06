@@ -86,7 +86,6 @@ const check = (name, ok, detail = '') => {
     /900|800|Black Han Sans/.test(m0[1].font || ''), m0[1].font);
 
   console.log('\n[직접 선택 모드]');
-  await page.click('#fontMode input[value="manual"]');
   check('드롭다운이 활성화된다', await page.getAttribute('#fontSelect', 'disabled') === null);
   await page.selectOption('#fontSelect', {label: 'Black Han Sans 400'});
   const mode = await page.evaluate(() => ({
@@ -99,7 +98,7 @@ const check = (name, ok, detail = '') => {
   check('목록에 직접 선택 표시가 뜬다',
     /직접 선택/.test(await page.textContent('#blockList')));
 
-  await page.click('#fontMode input[value="auto"]');
+  await page.selectOption('#fontSelect', {label: '자동판별'});
   const back = await page.evaluate(() => FontMatch.label(window.__app.fontFor(window.__app.state.blocks[0])));
   check('자동으로 되돌리면 판별 결과를 다시 쓴다', back === m0[0].font, back);
 

@@ -46,8 +46,7 @@ const CASES = [
       app.selectBlock(id);
       const b = s.blocks.find((x) => x.id === id);
       b.draft = text;
-      app.saveBlock();
-      await app.runCompose();
+      await app.saveBlock();      // 저장이 곧 합성이다
 
       // 수정하지 않은 블록 영역이 원본과 픽셀 단위로 같은지 확인한다.
       const c2 = document.createElement('canvas');
@@ -104,10 +103,9 @@ const CASES = [
       if (!b) continue;
       app.selectBlock(b.id);
       b.draft = e.text;
-      app.saveBlock();
+      await app.saveBlock();
       done.push({id: b.id, from: b.originalText, to: e.text, bg: b.bgColor, box: b.bbox});
     }
-    await app.runCompose();
 
     const c2 = document.createElement('canvas');
     c2.width = s.imageData.width; c2.height = s.imageData.height;
@@ -125,18 +123,16 @@ const CASES = [
   check('유형 B 편집이 실제로 적용됐다', rb.edits.length === 2, `${rb.edits.length}건`);
   console.log(`       조치: ${rb.notes.length ? rb.notes.map((n) => n.text).join(' / ') : '없음'}  (${rb.ms}ms)`);
 
-  // 원본/결과 토글
-  const tg = await page.evaluate(() => {
-    const app = window.__app;
-    app.showResult(false);
-    const a = document.getElementById('overlay').style.display;
-    app.showResult(true);
-    const b = document.getElementById('overlay').style.display;
-    return {原: a, 結: b, label: document.getElementById('toggleBtn').textContent};
-  });
-  console.log('\n[토글]');
-  check('결과 화면에서 오버레이가 숨겨진다', tg.原 === '' && tg.結 === 'none');
-  check('버튼 라벨이 바뀐다', tg.label === '원본 보기', tg.label);
+  console.log('\n[원본/결과 토글]');
+  const label = () => page.textContent('#toggleBtn');
+  check('저장 직후에는 결과를 보고 있다',
+    await page.evaluate(() => window.__app.state.showing) === 'result');
+  check('버튼이 원본 보기로 안내한다', (await label()) === '원본 보기', await label());
+  await page.click('#toggleBtn');
+  check('누르면 원본으로 바뀐다',
+    await page.evaluate(() => window.__app.state.showing) === 'original');
+  check('버튼이 결과 보기로 바뀐다', (await label()) === '결과 보기', await label());
+  await page.click('#toggleBtn');
 
   await page.screenshot({path: path.join(OUT, 'compose-result-view.png'), fullPage: true});
 

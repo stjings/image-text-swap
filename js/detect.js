@@ -22,6 +22,12 @@ const Detect = (() => {
   const MIN_H = 7, MAX_H = 170;   // 텍스트 줄 높이 허용 범위
   const MIN_W = 8;
   const PATCH_MIN = 1500;  // 단색 패치 최소 픽셀 수
+  const SIG_SPLIT = 0.35;  // 배경 대비 색 방향이 이보다 벌어지면 같은 줄이라도 나눈다
+  const MIN_SEG = 8;       // 색 분리 후 구간의 최소 폭(px)
+  const ANCHOR_H = 0.45;   // 색 기준이 될 수 있는 조각의 최소 높이(줄 높이 대비)
+  // 문단의 줄 간격은 줄 높이의 0.86배, 떨어진 라벨끼리는 1.14배로 측정됐다.
+  // 그 사이인 1.0을 경계로 둔다.
+  const LINE_GAP = 1.0;    // 같은 블록으로 묶을 최대 줄 간격(줄 높이 대비)
 
   /* ---------- 마스크 유틸 ---------- */
 
@@ -198,6 +204,132 @@ const Detect = (() => {
     return patches;
   }
 
+  /* ---------- 7-3 한 줄 안의 색 분리 ----------
+   * 한 줄에 색이 두 가지 섞여 있으면(파란 라벨 + 검은 값) 하나로 묶었을 때
+   * 지배적인 색으로 통일돼 재현이 틀어진다. 글자 조각을 왼쪽부터 훑으며
+   * 색이 바뀌는 지점에서 끊는다.
+   */
+  /**
+   * 색을 '크기'가 아니라 '배경에서 벗어난 방향'으로 비교한다.
+   *
+   * 얇은 획은 전부 안티에일리어싱이라 같은 검정이어도 옅게 잡힌다. 절대 색으로
+   * 비교하면 굵은 글자와 얇은 글자가 다른 색으로 갈려 단색 문장이 찢어진다.
+   * 배경에서 뻗어 나간 방향(단위벡터)은 굵기와 무관하게 같으므로, 진짜로 색이
+   * 다를 때만 벌어진다.
+   */
+  function colorSig(color, bg) {
+    if (!bg) return color.map((v) => v / 255);
+    const v = [color[0] - bg[0], color[1] - bg[1], color[2] - bg[2]];
+    const n = Math.hypot(v[0], v[1], v[2]);
+    return n < 12 ? null : v.map((q) => q / n);   // 배경과 사실상 같은 색은 기준이 못 된다
+  }
+
+  const sigDist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+
+  function splitByColor(d, W, ink, box, distAt, bg) {
+    const w = box.x1 - box.x0, h = box.y1 - box.y0;
+    if (w < MIN_SEG * 2) return [{bbox: box, sig: null}];
+
+    const local = new Uint8Array(w * h);
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++)
+      local[y * w + x] = ink[(box.y0 + y) * W + (box.x0 + x)];
+
+    // 글자 조각별 대표색. 한글은 한 음절이 한두 조각으로 잡힌다.
+    //
+    // 코어 픽셀 임계값은 '조각마다' 따로 잡아야 한다. 줄 전체 기준으로 잡으면
+    // 대비가 약한 색(연한 배경 위 파란 라벨)이 통째로 가중치 0이 되어
+    // 아예 후보에서 사라지고, 그러면 색이 둘인 줄을 나눌 수가 없다.
+    const parts = [];
+    for (const c of components(local, w, h, 4)) {
+      const px = [];
+      for (let y = c.y0; y < c.y1; y++) for (let x = c.x0; x < c.x1; x++) {
+        if (!local[y * w + x]) continue;
+        const gx = box.x0 + x, gy = box.y0 + y;
+        px.push([gx, gy, distAt ? distAt(gx, gy) : d[(gy * W + gx) * 4 + 3]]);
+      }
+      if (!px.length) continue;
+      const mx = px.reduce((m, q) => Math.max(m, q[2]), 0);
+      const core = mx * CORE_R;
+      let r = 0, g = 0, b = 0, wt = 0;
+      for (const [gx, gy, v] of px) {
+        if (v < core) continue;
+        const i = (gy * W + gx) * 4;
+        const k = distAt ? 1 : d[i + 3] / 255;
+        r += d[i] * k; g += d[i + 1] * k; b += d[i + 2] * k; wt += k;
+      }
+      if (wt > 0) {
+        // 쉼표·마침표처럼 키가 작은 조각은 획이 얇아 배경에 물든다. 그 색으로
+        // 구간을 새로 열면 단색 문장이 잘게 찢어진다. 색 기준을 정할 자격은
+        // 줄 높이의 절반 이상인 조각에만 준다.
+        const color = [r / wt, g / wt, b / wt];
+        const sig = colorSig(color, bg);
+        const anchor = sig !== null && (c.y1 - c.y0) >= h * ANCHOR_H;
+        parts.push({x0: c.x0, x1: c.x1, sig, wt, anchor});
+      }
+    }
+    if (parts.length < 2) return [{bbox: box, sig: null}];
+    parts.sort((a, b) => a.x0 - b.x0);
+
+    // 색이 비슷한 조각끼리 왼쪽부터 이어 붙인다.
+    const runs = [];
+    for (const p of parts) {
+      const last = runs[runs.length - 1];
+      const join = last && (!p.anchor || sigDist(last.sig, p.sig) <= SIG_SPLIT);
+      if (join) {
+        last.x1 = Math.max(last.x1, p.x1);
+        if (p.anchor) {   // 기준은 자격 있는 조각으로만 갱신한다
+          const t = p.wt / (last.wt + p.wt);
+          last.sig = last.sig.map((v, i) => v + (p.sig[i] - v) * t);
+          last.wt += p.wt;
+        }
+      } else if (p.anchor) {
+        runs.push({x0: p.x0, x1: p.x1, sig: p.sig.slice(), wt: p.wt});
+      } else if (last) {
+        last.x1 = Math.max(last.x1, p.x1);
+      }
+    }
+
+    // 작은 조각이 잘못 연 구간이 남을 수 있다. 방향이 가까운 이웃끼리 다시 합친다.
+    for (let i = 0; i < runs.length - 1; i++) {
+      if (sigDist(runs[i].sig, runs[i + 1].sig) > SIG_SPLIT) continue;
+      runs[i].x1 = Math.max(runs[i].x1, runs[i + 1].x1);
+      runs[i].wt += runs[i + 1].wt;
+      runs.splice(i + 1, 1); i--;
+    }
+    if (runs.length < 2) return [{bbox: box, sig: runs[0] ? runs[0].sig : null}];
+
+    // 너무 좁은 구간은 노이즈다. 색이 더 가까운 이웃에 흡수시킨다.
+    for (let i = 0; i < runs.length; i++) {
+      if (runs[i].x1 - runs[i].x0 >= MIN_SEG || runs.length === 1) continue;
+      const L = runs[i - 1], R = runs[i + 1];
+      const host = !L ? R : !R ? L
+        : (sigDist(L.sig, runs[i].sig) <= sigDist(R.sig, runs[i].sig) ? L : R);
+      if (!host) continue;
+      host.x0 = Math.min(host.x0, runs[i].x0);
+      host.x1 = Math.max(host.x1, runs[i].x1);
+      runs.splice(i, 1); i--;
+    }
+    if (runs.length < 2) return [{bbox: box, sig: runs[0] ? runs[0].sig : null}];
+
+    // 조각들의 x 범위가 서로 물릴 수 있다. 경계를 중간점으로 잘라 겹치지 않게 한다.
+    // 이걸 안 하면 구간이 겹쳐 같은 글자가 두 블록에 들어간다.
+    for (let i = 0; i < runs.length - 1; i++) {
+      if (runs[i].x1 <= runs[i + 1].x0) continue;
+      const mid = Math.round((runs[i].x1 + runs[i + 1].x0) / 2);
+      runs[i].x1 = mid;
+      runs[i + 1].x0 = mid;
+    }
+
+    // 구간마다 실제 잉크로 다시 타이트하게 잰다.
+    return runs.map((r) => {
+      const t = tighten(ink, W, {
+        x0: box.x0 + r.x0, y0: box.y0, x1: box.x0 + r.x1, y1: box.y1,
+      });
+      return t ? {bbox: t, sig: r.sig} : null;
+    }).filter(Boolean);
+  }
+
+
   /* ---------- 7-3 여러 줄 그룹핑 ---------- */
 
   function groupLines(lines) {
@@ -211,10 +343,11 @@ const Detect = (() => {
         const gap = b.y0 - last.y1;
         const overlapX = Math.min(b.x1, last.x1) - Math.max(b.x0, last.x0);
         const ratio = Math.max(h, lh) / Math.min(h, lh);
-        const lc = g.lines[g.lines.length - 1].color.top, c = ln.color.top;
-        const dc = Math.abs(lc[0] - c[0]) + Math.abs(lc[1] - c[1]) + Math.abs(lc[2] - c[2]);
-        return g.tier === ln.tier && gap >= -2 && gap <= lh * 1.5
-          && overlapX > 0 && ratio <= 1.3 && dc <= 90;
+        const la = colorSig(g.lines[g.lines.length - 1].color.top, g.lines[0].bgColor);
+        const lb = colorSig(ln.color.top, ln.bgColor);
+        const same = !la || !lb || sigDist(la, lb) <= SIG_SPLIT;
+        return g.tier === ln.tier && gap >= -2 && gap <= lh * LINE_GAP
+          && overlapX > 0 && ratio <= 1.3 && same;
       });
       if (host) host.lines.push(ln);
       else blocks.push({tier: ln.tier, lines: [ln]});
@@ -250,11 +383,11 @@ const Detect = (() => {
       if (!b || !textLike(b)) continue;
       const t = judgeTier(d, W, H, b, 3);
       if (t.tier !== 'A') continue;         // 불투명 덩어리는 2차에서 다룬다
-      lines.push({
-        bbox: b, tier: 'A',
-        color: extractColor(d, W, b, (x, y) =>
-          alpha[y * W + x] ? d[(y * W + x) * 4 + 3] / 255 : 0),
-      });
+      const wA = (x, y) => alpha[y * W + x] ? d[(y * W + x) * 4 + 3] / 255 : 0;
+      for (const {bbox: seg} of splitByColor(d, W, alpha, b, null, null)) {
+        if (!textLike(seg)) continue;
+        lines.push({bbox: seg, tier: 'A', color: extractColor(d, W, seg, wA)});
+      }
     }
 
     // 2차 — 단색 패치 안의 글자 (유형 B)
@@ -284,15 +417,28 @@ const Detect = (() => {
         // 배경에서 가장 먼 픽셀들만 글자 '코어'로 본다. 거리에 비례한 가중치를
         // 주면 경계 픽셀이 절반 넘는 무게를 받아 색이 배경 쪽으로 끌려간다
         // (검은 원 위 흰 글자가 회색으로 잡히던 문제).
-        let maxD = 0;
-        for (let y = b.y0; y < b.y1; y++) for (let x = b.x0; x < b.x1; x++)
-          if (ink[y * W + x]) maxD = Math.max(maxD, distAt(x, y));
-        const coreD = maxD * CORE_R;
-        lines.push({
-          bbox: b, tier: t.tier, bgColor: ref,
-          color: extractColor(d, W, b, (x, y) =>
-            (ink[y * W + x] && distAt(x, y) >= coreD) ? 1 : 0),
-        });
+        for (const {bbox: seg, sig} of splitByColor(d, W, ink, b, distAt, ref)) {
+          if (!textLike(seg)) continue;
+          // 구간의 색 방향과 맞는 픽셀만 후보로 둔다. 경계에 다른 색이 몇 픽셀만
+          // 섞여도, 그쪽이 배경에서 훨씬 멀면 코어 기준을 장악해 정작 이 구간의
+          // 색이 통째로 배제된다(파란 라벨이 검정으로 잡히던 문제).
+          const match = (x, y) => {
+            if (!ink[y * W + x]) return false;
+            if (!sig) return true;
+            const i = (y * W + x) * 4;
+            const s2 = colorSig([d[i], d[i + 1], d[i + 2]], ref);
+            return !s2 || sigDist(s2, sig) <= SIG_SPLIT;
+          };
+          let maxD = 0;
+          for (let y = seg.y0; y < seg.y1; y++) for (let x = seg.x0; x < seg.x1; x++)
+            if (match(x, y)) maxD = Math.max(maxD, distAt(x, y));
+          const coreD = maxD * CORE_R;
+          lines.push({
+            bbox: seg, tier: t.tier, bgColor: ref,
+            color: extractColor(d, W, seg, (x, y) =>
+              (match(x, y) && distAt(x, y) >= coreD) ? 1 : 0),
+          });
+        }
       }
     }
 
