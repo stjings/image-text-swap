@@ -1,8 +1,9 @@
 # GitHub Pages 배포.
 #
-# 사용 전 저장소 설정이 필요하다:
+# configure-pages 의 enablement 로 Pages 를 자동으로 켠다. 저장소 설정을
+# 손으로 바꾸지 않아도 된다. 권한이 부족해 실패하면 그때는 수동으로
 #   Settings → Pages → Build and deployment → Source: "GitHub Actions"
-# 이 설정을 하지 않으면 배포 단계에서 실패한다.
+# 로 바꿔 주어야 한다.
 #
 # 검증용 디렉터리(tools/ · spike/ · assets/)는 배포물에서 뺀다.
 # 앱 동작에 필요 없고 3.7MB를 차지한다.
@@ -39,6 +40,8 @@ jobs:
           du -sh _site
 
       - uses: actions/configure-pages@v5
+        with:
+          enablement: true
       - uses: actions/upload-pages-artifact@v3
         with:
           path: _site
