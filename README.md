@@ -68,13 +68,10 @@ python3 tools/tier-probe.py                         # 배경 유형 판정 검�
 `.github/workflows/pages.yml` 이 푸시마다 GitHub Pages 로 배포한다.
 검증용 디렉터리(`tools/` · `spike/` · `assets/`)는 배포물에서 빠진다.
 
-**저장소 설정을 한 번 해야 한다** (코드로는 바꿀 수 없다):
+워크플로가 `configure-pages` 의 `enablement` 로 Pages 를 직접 켜므로 **저장소
+설정을 손으로 바꿀 필요가 없다.**
 
-1. `Settings` → `Pages`
-2. `Build and deployment` → `Source` 를 **`GitHub Actions`** 로 변경
-3. `Actions` 탭에서 워크플로를 실행하거나 다음 푸시를 기다린다
-
-배포 주소: `https://stjings.github.io/image-text-swap/`
+배포 주소: **https://stjings.github.io/image-text-swap/**
 
 최초 1회 약 14MB(OCR 엔진·언어 데이터·웹폰트)를 내려받는다. 이후에는 브라우저
 캐시가 처리한다.

@@ -1478,19 +1478,33 @@ R 10명     →  ㅁ 10명
 
 이벤트 이미지에 영문이 흔하므로 4MB를 아끼려다 품질을 잃는 거래다.
 
-### 배포 설정 (사람이 해야 하는 부분)
+### 배포 — 완료
 
-저장소 설정은 코드로 바꿀 수 없다. 아래 한 번만 하면 이후 푸시마다 자동 배포된다.
+**주소: https://stjings.github.io/image-text-swap/**
 
-1. `Settings` → `Pages`
-2. `Build and deployment` → `Source` 를 **`GitHub Actions`** 로 변경
-3. `Actions` 탭에서 `Deploy to GitHub Pages` 워크플로 실행 (또는 다음 푸시를 기다림)
-4. 배포 주소: `https://stjings.github.io/image-text-swap/`
+처음 두 실행은 실패했다. 원인은 저장소에 Pages 가 켜져 있지 않은 것이었다.
 
-> Source 를 `GitHub Actions` 로 바꾸지 않으면 워크플로의 배포 단계에서 실패한다.
+```
+##[error] Get Pages site failed. Please verify that the repository has
+Pages enabled and configured to build using GitHub Actions
+```
+
+배포물 추리기까지는 정상이었다(`22M _site`). 저장소 설정을 사람이 바꾸는 대신
+`configure-pages` 의 **`enablement: true`** 로 워크플로가 Pages 를 직접 켜게 했고,
+세 번째 실행에서 전 단계 성공했다.
+
+| 단계 | 결과 |
+|------|------|
+| 배포물 추리기 | success |
+| configure-pages (enablement) | success |
+| upload-pages-artifact | success |
+| deploy-pages | success — `Reported success!` |
+
+이후 이 브랜치에 푸시하면 자동 배포된다. 저장소 설정을 손으로 만질 일은 없다.
 
 ### 남은 확인 사항
 
-- 실제 배포 URL 에서의 동작은 Pages 설정 후에 확인해야 한다. 로컬에서 같은 조건
-  (하위 경로 · 배포물만)으로는 통과했다
+- **실제 배포 URL 에서의 동작은 아직 확인하지 못했다.** 개발 환경의 프록시가
+  `github.io` 를 막고 있어 여기서는 열 수 없다. 로컬에서 같은 조건(하위 경로 ·
+  배포물만)으로는 통과했으므로 동작할 것으로 보지만, **브라우저로 한 번 확인이 필요하다**
 - 최초 로딩 14.3MB 는 사내 사용에는 무리가 없지만 외부 공개 시 체감될 수 있다
