@@ -38,12 +38,40 @@ jobs:
           cp index.html .nojekyll _site/
           cp -r css js fonts vendor _site/
           du -sh _site
+          # 배포물에 무엇이 들어갔는지 로그에 남긴다. "고쳤는데 화면이 그대로"일 때
+          # 코드 문제인지 배포 문제인지 여기서 갈린다.
+          ls -l _site/js
 
       - uses: actions/configure-pages@v5
         with:
           enablement: true
-      - uses: actions/upload-pages-artifact@v3
+
+      # upload-pages-artifact 대신 tar + upload-artifact 를 직접 쓴다.
+      #
+      # 9번째 실행이 이걸로 죽었다:
+      #   Error: Multiple artifacts named "github-pages" were unexpectedly
+      #   found for this workflow run. Artifact count is 2.
+      # 15MB 를 올리느라 finalize 가 27초 걸렸고, 그 사이 업로드가 재시도되면서
+      # 같은 이름의 아티팩트가 두 개 등록됐다. deploy-pages 는 이름이 하나일 것을
+      # 전제하므로 그대로 실패한다. upload-pages-artifact@v3 는 이 상황을 막을
+      # 손잡이(overwrite)를 노출하지 않아, 한 번 이렇게 되면 재실행으로도 못 푼다.
+      #
+      # 아래 tar 명령은 upload-pages-artifact@v3 가 내부에서 하는 것과 같다.
+      # 다른 점은 overwrite: true 하나 — 같은 이름이 이미 있으면 지우고 올린다.
+      - name: 배포물 묶기
+        run: |
+          tar --dereference --hard-dereference \
+              --directory _site \
+              -cf "$RUNNER_TEMP/artifact.tar" \
+              --exclude=.git --exclude=.github .
+
+      - uses: actions/upload-artifact@v4
         with:
-          path: _site
+          name: github-pages
+          path: ${{ runner.temp }}/artifact.tar
+          retention-days: 1
+          if-no-files-found: error
+          overwrite: true
+
       - id: deploy
         uses: actions/deploy-pages@v4
