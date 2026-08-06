@@ -16,7 +16,7 @@
 | M4 | 합성 (유형 A) | ✅ 완료 ([PLAN.md 부록 E](./PLAN.md#부록-e-m4-결과)) |
 | M4.5 | 합성 (유형 B) | ✅ 완료 ([PLAN.md 부록 F](./PLAN.md#부록-f-m45-결과)) |
 | M5 | 폰트 직접 선택 · 자동판별 | ✅ 완료 ([PLAN.md 부록 G](./PLAN.md#부록-g-m5-결과)) |
-| M6 | 다운로드 · GitHub Pages 배포 | 예정 |
+| M6 | 다운로드 · GitHub Pages 배포 | ✅ 완료 ([PLAN.md 부록 H](./PLAN.md#부록-h-m6-결과)) |
 
 ## 실행
 
@@ -58,9 +58,26 @@ NODE_PATH=$(npm root -g) node tools/detect-probe.js # 검출 결과 + 경계 시
 NODE_PATH=$(npm root -g) node tools/edit-probe.js   # 선택·편집·저장 상호작용 검사
 NODE_PATH=$(npm root -g) node tools/compose-probe.js # 합성·오버플로·픽셀 보존 검사
 NODE_PATH=$(npm root -g) node tools/font-probe.js    # 폰트 판별·직접 선택 검사
+NODE_PATH=$(npm root -g) node tools/deploy-probe.js  # 배포물·하위경로·다운로드 검사
 NODE_PATH=$(npm root -g) node spike/run.js          # M0 파이프라인 재실행
 python3 tools/tier-probe.py                         # 배경 유형 판정 검증
 ```
+
+## 배포
+
+`.github/workflows/pages.yml` 이 푸시마다 GitHub Pages 로 배포한다.
+검증용 디렉터리(`tools/` · `spike/` · `assets/`)는 배포물에서 빠진다.
+
+**저장소 설정을 한 번 해야 한다** (코드로는 바꿀 수 없다):
+
+1. `Settings` → `Pages`
+2. `Build and deployment` → `Source` 를 **`GitHub Actions`** 로 변경
+3. `Actions` 탭에서 워크플로를 실행하거나 다음 푸시를 기다린다
+
+배포 주소: `https://stjings.github.io/image-text-swap/`
+
+최초 1회 약 14MB(OCR 엔진·언어 데이터·웹폰트)를 내려받는다. 이후에는 브라우저
+캐시가 처리한다.
 
 ## 폰트 라이선스
 

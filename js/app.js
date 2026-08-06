@@ -392,8 +392,31 @@ function showResult(on) {
   el.overlay.style.display = on ? 'none' : '';
   el.toggleBtn.disabled = !state.result;
   el.toggleBtn.textContent = on ? '원본 보기' : '결과 보기';
-  el.downloadBtn.disabled = true;   // 다운로드는 M6
+  el.downloadBtn.disabled = !state.result;
 }
+
+/* ---------------- 다운로드 (M6) ---------------- */
+
+/** 결과를 PNG로 저장한다.
+ *  원본이 JPG여도 PNG로 내보낸다. 재압축 열화를 피하고 투명도를 보존하기 위함이다. */
+function download() {
+  if (!state.result) return;
+  state.result.toBlob((blob) => {
+    if (!blob) { setStatus('저장에 실패했습니다.', true); return; }
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = outputName(state.fileName);
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    // 브라우저가 저장을 시작할 시간을 준 뒤 해제한다.
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+  }, 'image/png');
+}
+
+const outputName = (name) =>
+  (name || 'image').replace(/\.[^.]+$/, '') + '-edited.png';
 
 function renderNotes() {
   const ns = state.composeNotes;
@@ -442,6 +465,7 @@ function reset() {
   el.overlay.style.display = '';
   el.toggleBtn.disabled = true;
   el.toggleBtn.textContent = '원본 / 결과';
+  el.downloadBtn.disabled = true;
   el.editor.hidden = true;
   el.filterBar.hidden = true;
   el.dirtyCount.textContent = '';
@@ -550,6 +574,7 @@ el.fontMode.addEventListener('change', (e) => {
 
 el.composeBtn.addEventListener('click', runCompose);
 el.toggleBtn.addEventListener('click', () => showResult(state.showing !== 'result'));
+el.downloadBtn.addEventListener('click', download);
 el.saveBtn.addEventListener('click', saveBlock);
 el.revertBtn.addEventListener('click', revertBlock);
 
@@ -578,4 +603,4 @@ document.addEventListener('keydown', (e) => {
 });
 
 window.__app = {state, loadFile, runAnalysis, selectBlock, saveBlock, revertBlock,
-                runCompose, showResult, fontFor};
+                runCompose, showResult, fontFor, download, outputName};

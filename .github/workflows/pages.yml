@@ -1,0 +1,46 @@
+# GitHub Pages 배포.
+#
+# 사용 전 저장소 설정이 필요하다:
+#   Settings → Pages → Build and deployment → Source: "GitHub Actions"
+# 이 설정을 하지 않으면 배포 단계에서 실패한다.
+#
+# 검증용 디렉터리(tools/ · spike/ · assets/)는 배포물에서 뺀다.
+# 앱 동작에 필요 없고 3.7MB를 차지한다.
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [claude/plan-analysis-explanation-r1s6j1]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 배포물 추리기
+        run: |
+          mkdir -p _site
+          cp index.html .nojekyll _site/
+          cp -r css js fonts vendor _site/
+          du -sh _site
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - id: deploy
+        uses: actions/deploy-pages@v4
