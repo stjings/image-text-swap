@@ -12,6 +12,7 @@ const el = {
   fileInput: $('fileInput'), pickBtn: $('pickBtn'), pickBtn2: $('pickBtn2'),
   revertAllBtn: $('revertAllBtn'), fileName: $('fileName'),
   viewToggle: $('viewToggle'), typoPanel: $('typoPanel'),
+  typoWrap: $('typoWrap'), typoTotalMini: $('typoTotalMini'), verdict: $('verdict'),
   stage: $('stage'), dropzone: $('dropzone'), viewport: $('viewport'),
   canvas: $('preview'), overlay: $('overlay'), bgToggle: $('bgToggle'),
   info: $('imgInfo'), blockCount: $('blockCount'), blockList: $('blockList'),
@@ -238,8 +239,10 @@ function renderOverlay() {
     else if (!state.showAllRegions) cls.push('ghost');
     if (!shown.has(b.id)) cls.push('faded');
     if (b.dirty) cls.push('dirty');
+    // 미리보기 위 라벨은 목록·편집창이 쓰는 이름과 같아야 한다. 유형 문자(A/B/C)는
+    // 내부 용어라 화면에 그대로 내보내지 않는다.
     return `<div class="${cls.join(' ')}" data-id="${b.id}" style="${style}"`
-      + ` title="${TIER_LABEL[b.tier]}"><i>${b.tier}</i></div>`;
+      + ` title="${TIER_LABEL[b.tier]}"><i>${b.id}</i></div>`;
   }).join('');
 }
 
@@ -262,28 +265,29 @@ function renderBlockList() {
 
   el.blockList.innerHTML = list.map((b) => {
     const shown = typeof b.draft === 'string' ? b.draft : b.originalText;
-    const mark = isUnsaved(b) ? '<span class="mark edit" title="저장하지 않은 변경">✎</span>'
-      : b.dirty ? '<span class="mark done" title="저장됨">✓</span>' : '';
+    const mark = isUnsaved(b) ? '<span class="mark edit" title="저장하지 않은 변경">✎ 미저장</span>'
+      : b.dirty ? '<span class="mark done" title="저장됨">✓ 수정됨</span>' : '';
     const txt = shown
       ? escapeHtml(shown).replace(/\n/g, '<br>')
       : ('confidence' in b
-        ? '<span class="fail">인식 실패</span>'
-        : '<span class="pending">인식 대기…</span>');
+        ? '<span class="fail">글자를 읽지 못했습니다</span>'
+        : '<span class="pending">읽는 중…</span>');
     const low = typeof b.confidence === 'number' && b.originalText && b.confidence < CONF_LOW;
     const conf = typeof b.confidence === 'number' && b.originalText
-      ? `<span class="conf${low ? ' low' : ''}" title="OCR 신뢰도">인식 ${Math.round(b.confidence)}%</span>` : '';
+      ? `<span class="conf${low ? ' low' : ''}" title="글자를 얼마나 확실하게 읽었는지">글자 인식 ${Math.round(b.confidence)}%</span>` : '';
+    const sf = safety(b);
     const sel = b.id === state.selectedId ? ' sel' : '';
     return `<div class="item item-${b.tier}${b.locked ? ' locked' : ''}${low ? ' lowconf' : ''}${sel}"
-                 data-id="${b.id}" role="button" tabindex="-1">
+                 data-id="${b.id}" role="button" tabindex="-1"
+                 title="${TIER_LABEL[b.tier]}">
       <div class="item-head">
-        <span class="badge badge-${b.tier}" title="${TIER_LABEL[b.tier]}">${b.locked ? '🔒 ' : ''}${b.tier}</span>
+        <span class="chip ${sf.cls}">${sf.label}</span>
         ${mark}
-        <span class="dim">${b.lines.length}줄 · ${b.bbox.x1 - b.bbox.x0}×${b.bbox.y1 - b.bbox.y0}</span>
+        <span class="spacer"></span>
         ${conf}
       </div>
       <div class="item-text">${txt}</div>
       ${fontLine(b)}
-      ${low ? '<p class="hint">인식 신뢰도가 낮습니다. 문구를 확인해 주세요.</p>' : ''}
     </div>`;
   }).join('');
 }
@@ -312,12 +316,20 @@ function selectBlock(id, {scroll = true} = {}) {
 function renderEditor() {
   const b = byId(state.selectedId);
   renderTypoPanel(b);
-  if (!b) { el.editor.hidden = true; return; }
+  if (!b) { el.editor.hidden = true; el.verdict.hidden = true; return; }
   el.editor.hidden = false;
-  el.editorTitle.textContent = `블록 ${b.id} · ${TIER_LABEL[b.tier]}`;
+
+  // 판정을 제목 옆이 아니라 제목 줄 자체에 붙인다. 담당자가 블록을 고르면
+  // 제일 먼저 읽어야 하는 것이 "바꿔도 되나"다.
+  const sf = safety(b);
+  el.editorTitle.innerHTML = `<span class="chip ${sf.cls}">${sf.label}</span>`
+    + ` <span class="dim">블록 ${b.id} · ${TIER_LABEL[b.tier]}</span>`;
+  el.verdict.hidden = !sf.text;
+  el.verdict.className = `verdict ${sf.cls}`;
+  el.verdict.textContent = sf.text;
 
   if (b.locked) {
-    el.editorOrig.innerHTML = '<span class="locked-msg">배경이 복잡해 이번 버전에서는 교체할 수 없습니다.</span>';
+    el.editorOrig.innerHTML = '';
     el.editorText.value = b.originalText || '';
     el.editorText.disabled = true;
     el.saveBtn.disabled = el.revertBtn.disabled = true;
@@ -325,7 +337,7 @@ function renderEditor() {
     return;
   }
   if (typeof b.draft !== 'string') {           // OCR 이 아직 끝나지 않은 블록
-    el.editorOrig.innerHTML = '<span class="dim">인식 대기 중…</span>';
+    el.editorOrig.innerHTML = '<span class="dim">글자를 읽는 중…</span>';
     el.editorText.value = '';
     el.editorText.disabled = true;
     el.saveBtn.disabled = el.revertBtn.disabled = true;
@@ -333,15 +345,17 @@ function renderEditor() {
     return;
   }
 
-  el.editorOrig.innerHTML = (b.originalText
-    ? `원문 <code>${escapeHtml(b.originalText).replace(/\n/g, ' ⏎ ')}</code>`
-    : '<span class="fail">원문 인식 실패 — 직접 입력하세요</span>') + fontLine(b);
+  el.editorOrig.innerHTML = b.originalText
+    ? `<span class="dim">원래 문구</span> <code>${escapeHtml(b.originalText).replace(/\n/g, ' ⏎ ')}</code>`
+    : '<span class="fail">글자를 읽지 못했습니다 — 직접 입력하세요</span>';
   if (document.activeElement !== el.editorText) el.editorText.value = b.draft;
   el.editorText.disabled = false;
-  el.editorText.rows = Math.max(2, b.lines.length + 1);
+  // 줄 수에 맞추되 화면을 잡아먹지 않게 4줄에서 자른다. 더 필요하면 사용자가
+  // 모서리를 끌어 늘릴 수 있다(resize: vertical).
+  el.editorText.rows = Math.min(4, Math.max(2, b.lines.length + 1));
   el.saveBtn.disabled = !isUnsaved(b);
   el.revertBtn.disabled = !b.dirty && !isUnsaved(b);
-  el.editorHint.textContent = isUnsaved(b) ? '저장하지 않은 변경'
+  el.editorHint.textContent = isUnsaved(b) ? '저장하지 않았습니다'
     : b.dirty ? '저장됨' : '';
   el.editorHint.className = 'editor-hint' + (isUnsaved(b) ? ' warn' : b.dirty ? ' ok' : '');
 }
@@ -540,32 +554,75 @@ const scoreClass = (v, kind = 'fit') => {
   return v >= g ? 'good' : v >= o ? 'ok' : 'bad';
 };
 
-/** 목록용 한 줄 요약. */
+/** 목록용 한 줄 요약 — 글꼴·크기·간격을 한눈에. */
 function fontLine(b) {
   const m = typoFor(b);
   if (!m) {
-    if (state.fontMode === 'manual' && state.selectedFont) {
-      return `<p class="fontinfo">${escapeHtml(FontMatch.label(state.selectedFont))} <span class="dim">(직접 선택)</span></p>`;
-    }
-    const f = b.detectedFont;
-    if (!f) return '';
-    return `<p class="fontinfo">판별: ${escapeHtml(FontMatch.label(f))}</p>`;
+    const f = (state.fontMode === 'manual' && state.selectedFont) || b.detectedFont;
+    return f ? `<p class="fontinfo"><span class="fi-k">글꼴</span> ${escapeHtml(FontMatch.label(f))}</p>` : '';
   }
   const manual = state.fontMode === 'manual' && state.selectedFont;
   return `<p class="fontinfo">
-    <span class="tscore ${scoreClass(m.total, 'total')}" title="원문 재현 유사도">${pct(m.total)}%</span>
-    ${escapeHtml(m.font.label)}
-    <span class="dim">· ${m.size.px.toFixed(1)}px · 자간 ${fmtTrack(m.tracking)}</span>
-    ${manual ? '<span class="dim">(직접 선택)</span>' : ''}
+    <span class="fi-k">글꼴</span> ${escapeHtml(m.font.label)}${manual ? ' <span class="fi-k">직접 고름</span>' : ''}
+    <span class="fi-k">크기</span> ${m.size.px.toFixed(0)}px
+    <span class="fi-k">자간</span> ${fmtTrack(m.tracking)}
+    ${m.leading ? `<span class="fi-k">행간</span> ${m.leading.px}px` : ''}
   </p>`;
 }
 
 const fmtTrack = (t) => `${t.pct >= 0 ? '+' : ''}${t.pct.toFixed(1)}%`;
 
 /** 상세 계측 패널 — 피그마의 타이포 속성처럼 항목별로 나눠 보여 준다. */
+/**
+ * "이 블록을 바꿔도 되나" — 한 단어로 답한다.
+ *
+ * 담당자가 목록을 훑을 때 필요한 건 백분율이 아니라 이 판정이다. 숫자는 근거라
+ * 뒤로 뺀다. 판정 기준은 계측 항목 중 **고칠 수 없는 것**을 먼저 본다:
+ * 자리·크기·간격이 어긋나면 어떤 폰트를 골라도 티가 난다.
+ */
+function safety(b) {
+  if (b.locked) {
+    return {key: 'locked', label: '편집 불가', cls: 'bad',
+            text: '배경이 복잡해 이 블록은 바꿀 수 없습니다.'};
+  }
+  const m = typoFor(b);
+  if (!m) return {key: 'wait', label: '대기', cls: 'dimchip', text: ''};
+
+  const off = [];
+  if (m.tracking.capped || m.tracking.score < 0.9) off.push('글자 폭');
+  if (m.align.score < 0.95) off.push('가로 위치');
+  if (m.size.score < 0.9) off.push('글자 크기');
+  if (off.length) {
+    return {key: 'risk', label: '위험', cls: 'bad', m,
+            text: `${off.join('·')}이(가) 원본과 어긋납니다. 바꾸면 티가 납니다.`};
+  }
+
+  const drift = m.align.drift >= 0.05
+    ? ` 다만 ${m.align.label} 정렬이라 문구 길이가 바뀌면 좌우로 ${m.align.drift.toFixed(1)}px 움직입니다.`
+    : '';
+  const lowConf = typeof b.confidence === 'number' && b.originalText && b.confidence < CONF_LOW;
+  if (lowConf) {
+    return {key: 'check', label: '문구 확인', cls: 'ok', m,
+            text: `자리·크기·간격은 맞습니다. 다만 읽어낸 문구가 틀렸을 수 있으니 원문과 대조해 주세요.${drift}`};
+  }
+  if (m.font.score < BANDS.font[1]) {
+    return {key: 'careful', label: '글꼴 다름', cls: 'ok', m,
+            text: `자리·크기·간격은 맞지만 글꼴 모양이 원본과 꽤 다릅니다.${drift}`};
+  }
+  return {key: 'safe', label: '안전', cls: 'good', m,
+          text: `그대로 바꿔도 됩니다. 자리·크기·간격이 원본과 맞습니다.${drift}`};
+}
+
+/* 전문 용어를 쓰지 않는다. 담당자는 디자이너가 아니다.
+ * 다만 디자인팀과 이야기할 때 쓰는 말(자간·행간)은 괄호로 같이 둔다. */
+const TYPO_LABEL = {
+  font: '글꼴', size: '글자 크기', tracking: '글자 사이 (자간)',
+  leading: '줄 사이 (행간)', align: '가로 위치',
+};
+
 function renderTypoPanel(b) {
   const m = b && !b.locked ? typoFor(b) : null;
-  el.typoPanel.hidden = !m;
+  el.typoWrap.hidden = !m;
   if (!m) return;
 
   const row = (key, value, score, note, kind) => `
@@ -579,46 +636,29 @@ function renderTypoPanel(b) {
     </div>`;
 
   const d = b.detectedFont;
-  const fontNote = state.fontMode === 'manual' && state.selectedFont ? '직접 선택'
+  const fontNote = state.fontMode === 'manual' && state.selectedFont ? '직접 고름'
     : d && d.adjusted ? '이미지 기준으로 맞춤'
-    : d && d.lowConfidence ? '후보 간 차이 작음' : '';
+    : d && d.lowConfidence ? '비슷한 후보가 많음' : '';
+
+  el.typoTotalMini.className = `tscore ${scoreClass(m.total, 'total')}`;
+  el.typoTotalMini.textContent = `${pct(m.total)}%`;
 
   el.typoPanel.innerHTML = `
-    <div class="typo-head">
-      <span>타이포 계측 <span class="dim">원문 재현 기준</span></span>
-      <span class="typo-total ${scoreClass(m.total, 'total')}">${pct(m.total)}%</span>
-    </div>
-    ${row('폰트', escapeHtml(m.font.label)
+    ${row(TYPO_LABEL.font, escapeHtml(m.font.label)
         + (fontNote ? ` <span class="lowgap">${fontNote}</span>` : ''), m.font.score, null, 'font')}
-    ${row('크기', `${m.size.px.toFixed(1)} px`, m.size.score)}
-    ${row('자간', `${fmtTrack(m.tracking)} <span class="dim">(${m.tracking.px.toFixed(2)}px)</span>`
-        + (m.tracking.capped ? ' <span class="lowgap">상한</span>' : ''), m.tracking.score)}
+    ${row(TYPO_LABEL.size, `${m.size.px.toFixed(1)} px`, m.size.score)}
+    ${row(TYPO_LABEL.tracking, `${fmtTrack(m.tracking)} <span class="dim">(${m.tracking.px.toFixed(2)}px)</span>`
+        + (m.tracking.capped ? ' <span class="lowgap">더 못 좁힘</span>' : ''), m.tracking.score)}
     ${m.leading
-      ? row('행간', `${m.leading.px} px <span class="dim">(${m.leading.ratio.toFixed(2)}배`
-          + `, 기본 대비 ${m.leading.delta >= 0 ? '+' : ''}${m.leading.delta.toFixed(0)}%)</span>`,
-          null, '원본 유지')
-      : row('행간', '<span class="dim">한 줄 — 측정 불가</span>', null, '—')}
-    ${row('정렬', `${m.align.label} <span class="dim">· ${m.align.drift < 0.05
-        ? '문구가 바뀌어도 고정'
-        : `한 글자 줄면 ${m.align.drift.toFixed(1)}px 이동`}</span>`, m.align.score)}
-    <p class="typo-note">${typoVerdict(m)}</p>`;
-}
-
-/**
- * 수치를 한 문장으로 옮긴다. 담당자가 "이 블록을 그대로 바꿔도 되나"를 판단하는
- * 데 필요한 것은 백분율이 아니라 이 문장이다.
- */
-function typoVerdict(m) {
-  const bad = [];
-  if (m.tracking.score < 0.9 || m.tracking.capped) bad.push('폭');
-  if (m.align.score < 0.95) bad.push('위치');
-  if (m.size.score < 0.9) bad.push('크기');
-  if (bad.length) return `${bad.join('·')}이(가) 원본과 어긋납니다. 교체하면 눈에 띕니다.`;
-
-  const drift = m.align.drift >= 0.05
-    ? ` 다만 ${m.align.label} 정렬이라 문구 길이가 바뀌면 좌우로 밀립니다.` : '';
-  if (m.font.score >= 0.7) return `자리·크기·자간이 원본과 맞습니다. 그대로 교체해도 됩니다.${drift}`;
-  return `자리·크기·자간은 맞습니다. 글자 모양만 원본과 다릅니다.${drift}`;
+      ? row(TYPO_LABEL.leading, `${m.leading.px} px <span class="dim">(글자 크기의 ${m.leading.ratio.toFixed(2)}배`
+          + `, 글꼴 기본보다 ${m.leading.delta >= 0 ? '넓음 +' : '좁음 '}${m.leading.delta.toFixed(0)}%)</span>`,
+          null, '원본 그대로')
+      : row(TYPO_LABEL.leading, '<span class="dim">한 줄이라 잴 것이 없음</span>', null, '—')}
+    ${row(TYPO_LABEL.align, `${m.align.label} <span class="dim">· ${m.align.drift < 0.05
+        ? '문구가 바뀌어도 제자리'
+        : `한 글자 줄면 ${m.align.drift.toFixed(1)}px 움직임`}</span>`, m.align.score)}
+    <p class="typo-note">전부 <b>원문을 다시 그려 원본과 겹쳐 본</b> 결과입니다.
+      원문조차 제자리에 못 놓으면 바꾼 문구는 더 어긋납니다.</p>`;
 }
 
 const escapeHtml = (s) => s.replace(/[&<>"]/g, (c) => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));

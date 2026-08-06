@@ -44,7 +44,7 @@ js/typo.js      폰트·크기·자간·행간·정렬 계측
 js/localfont.js 사용자 PC에 설치된 폰트를 후보로 등록
 fonts/          웹폰트 25종 (woff2) + fonts.css
 vendor/         Tesseract 자산 자체 호스팅 (약 17MB)
-assets/         기준 샘플 이미지
+assets/         기준 샘플 이미지 (고해상도 헤드라인 회귀 샘플 포함)
 tools/          검증 도구 (배포물 아님)
 spike/          M0 스파이크 (M1 이후 폐기 예정)
 ```

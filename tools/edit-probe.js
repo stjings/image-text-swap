@@ -116,7 +116,7 @@ function check(name, ok, detail = '') {
     s = await snap();
     check('잠긴 블록도 선택은 된다', s.selected === lockedId);
     check('입력창이 비활성화된다', await page.getAttribute('#editorText', 'disabled') !== null);
-    check('안내 문구가 뜬다', /교체할 수 없습니다/.test(await page.textContent('#editorOrig')));
+    check('안내 문구가 뜬다', /바꿀 수 없습니다/.test(await page.textContent('#verdict')));
   } else {
     console.log('  (잠긴 블록 없음 — 건너뜀)');
   }

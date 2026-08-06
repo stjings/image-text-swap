@@ -17,8 +17,12 @@ const Detect = (() => {
   const NEAR = 72;         // 배경색 근접 판정 (채널 절대차 합)
   const FAR = 96;          // 배경 대비 이물(글자) 판정
   const CORE_R = 0.65;     // 글자 코어 판정: 최대 색거리 대비 비율
-  const RLSA_X = 26;       // 가로 런렝스 평활 — 글자를 줄로 잇는다
-  const RLSA_Y = 4;        // 세로 런렝스 평활
+  const RLSA_X = 26;       // 가로 런렝스 평활 하한 — 글자를 줄로 잇는다
+  const RLSA_Y = 4;        // 세로 런렝스 평활 하한
+  // 낱말 사이 간격은 글자 크기에 비례한다. 고정 픽셀값만 쓰면 큰 글자에서
+  // 낱말이 안 이어져 한 줄이 여러 조각으로 갈린다(rlsaAuto).
+  const RLSA_RATIO = 0.5;    // 글자 높이 대비 가로 평활 거리
+  const RLSA_Y_RATIO = 0.08; // 글자 높이 대비 세로 평활 거리
   const MIN_H = 7, MAX_H = 170;   // 텍스트 줄 높이 허용 범위
   const MIN_W = 8;
   const PATCH_MIN = 1500;  // 단색 패치 최소 픽셀 수
@@ -28,6 +32,10 @@ const Detect = (() => {
   // 문단의 줄 간격은 줄 높이의 0.86배, 떨어진 라벨끼리는 1.14배로 측정됐다.
   // 그 사이인 1.0을 경계로 둔다.
   const LINE_GAP = 1.0;    // 같은 블록으로 묶을 최대 줄 간격(줄 높이 대비)
+  // 한 블록으로 묶으면 합성이 크기를 하나로 통일한다. 크기가 다른 줄을 묶으면
+  // 그 통일이 두 줄을 다 망친다. 실측: 진짜 여러 줄 블록의 줄 높이 비는
+  // 최대 1.071(샘플 A·B 6블록). 크기가 다른 헤드라인 두 줄은 1.22 였다.
+  const LINE_RATIO = 1.15; // 같은 블록으로 묶을 최대 줄 높이 비
 
   /* ---------- 마스크 유틸 ---------- */
 
@@ -53,6 +61,32 @@ const Detect = (() => {
       }
     }
     return out;
+  }
+
+  /**
+   * 글자 크기에 맞춘 거리로 다시 평활한다.
+   *
+   * `RLSA_X` 를 픽셀 상수로 두면 해상도가 큰 이미지에서 낱말이 안 이어진다.
+   * 2280px 헤드라인(글자 높이 73px)에서 낱말 사이 배경이 26px 를 넘어
+   * `지금 공단기로` / `넘어오면 전-직렬` / `50만원 할인!` 세 조각으로 갈렸다.
+   * 낱말 사이는 글자 크기에 비례하는데 기준만 고정이었던 것이다.
+   *
+   * 1차 평활로 글자 높이를 먼저 재고, 그 높이에 비례한 거리로 한 번 더 평활한다.
+   * **거리는 늘리기만 한다.** 줄이면 작은 글자 이미지의 기존 동작이 바뀐다.
+   */
+  function rlsaAuto(mask, W, H) {
+    const first = rlsa(mask, W, H, RLSA_X, RLSA_Y);
+    const hs = [];
+    for (const r of components(first, W, H, 30)) {
+      const b = tighten(mask, W, r);
+      if (b && textLike(b)) hs.push(b.y1 - b.y0);
+    }
+    if (!hs.length) return first;
+    hs.sort((a, b) => a - b);
+    const med = hs[Math.floor(hs.length / 2)];
+    const gx = Math.round(med * RLSA_RATIO);
+    if (gx <= RLSA_X) return first;
+    return rlsa(mask, W, H, gx, Math.max(RLSA_Y, Math.round(med * RLSA_Y_RATIO)));
   }
 
   /** 4-연결 컴포넌트. {x0,y0,x1,y1,count} 배열을 반환한다. */
@@ -358,7 +392,7 @@ const Detect = (() => {
         const lb = colorSig(ln.color.top, ln.bgColor);
         const same = !la || !lb || sigDist(la, lb) <= SIG_SPLIT;
         return g.tier === ln.tier && gap >= -2 && gap <= lh * LINE_GAP
-          && overlapX > 0 && ratio <= 1.3 && same;
+          && overlapX > 0 && ratio <= LINE_RATIO && same;
       });
       if (host) host.lines.push(ln);
       else blocks.push({tier: ln.tier, lines: [ln]});
@@ -388,7 +422,7 @@ const Detect = (() => {
     // 1차 — 알파 마스크에서 유형 A 텍스트
     const alpha = new Uint8Array(W * H);
     for (let i = 3, p = 0; i < d.length; i += 4, p++) alpha[p] = d[i] > ALPHA_T ? 1 : 0;
-    const smoothA = rlsa(alpha, W, H, RLSA_X, RLSA_Y);
+    const smoothA = rlsaAuto(alpha, W, H);
     for (const r of components(smoothA, W, H, 30)) {
       const b = tighten(alpha, W, r);
       if (!b || !textLike(b)) continue;
@@ -413,7 +447,7 @@ const Detect = (() => {
         if (Math.abs(d[i] - bg[0]) + Math.abs(d[i + 1] - bg[1]) + Math.abs(d[i + 2] - bg[2]) > FAR)
           ink[q] = 1;
       }
-      const smoothB = rlsa(ink, W, H, RLSA_X, RLSA_Y);
+      const smoothB = rlsaAuto(ink, W, H);
       for (const r of components(smoothB, W, H, 30)) {
         const b = tighten(ink, W, r);
         if (!b || !textLike(b)) continue;

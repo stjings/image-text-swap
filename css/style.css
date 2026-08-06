@@ -398,3 +398,67 @@ body {
 .bk.ghost { border-color: transparent; }
 .bk.ghost i { display: none; }
 .bk.ghost:hover { border-color: rgba(127, 127, 127, .55); }
+
+
+/* ---------- v1.6 UI 정리 ----------
+ * 블록 카드에서 제일 눈에 들어와야 하는 것은 "바꿔도 되나"(칩)와 문구다.
+ * 수치는 근거라서 작고 조용하게 둔다 — 단, 읽을 수는 있어야 한다.
+ */
+.item-head { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
+.item-head .spacer { flex: 1; }
+.chip {
+  display: inline-block; padding: 2px 8px; border-radius: 999px;
+  font-size: 11px; font-weight: 700; line-height: 1.5; white-space: nowrap;
+}
+.chip.good { background: #dcfce7; color: #15803d; }
+.chip.ok   { background: #fef3c7; color: #92400e; }
+.chip.bad  { background: #fee2e2; color: #b91c1c; }
+.chip.dimchip { background: var(--line); color: var(--muted); }
+@media (prefers-color-scheme: dark) {
+  .chip.good { background: #14321f; color: #4ade80; }
+  .chip.ok   { background: #3b2f14; color: #fbbf24; }
+  .chip.bad  { background: #3d1c1c; color: #f87171; }
+}
+
+.item-text { font-size: 13px; line-height: 1.55; word-break: break-all; }
+.conf { font-size: 11px; color: var(--muted); white-space: nowrap; }
+.conf.low { color: #b45309; font-weight: 700; }
+.mark { font-size: 11px; font-weight: 700; }
+.mark.edit { color: #b45309; }
+.mark.done { color: #16a34a; }
+
+/* 글꼴·크기·자간 줄 — 항목 이름을 앞에 붙여야 무슨 숫자인지 안다. */
+.fontinfo {
+  display: flex; flex-wrap: wrap; gap: 2px 10px;
+  margin: 6px 0 0; padding-top: 6px; border-top: 1px dashed var(--line);
+  font-size: 11px; color: var(--text); font-variant-numeric: tabular-nums;
+}
+.fi-k { color: var(--muted); margin-right: 2px; }
+
+/* 판정 문장 — 가장 중요한 한 줄이므로 색 박스로 세운다. */
+.verdict {
+  margin: 0 0 8px; padding: 8px 10px; border-radius: 8px;
+  font-size: 12px; line-height: 1.55; font-weight: 600;
+}
+.verdict.good { background: #dcfce7; color: #14532d; }
+.verdict.ok   { background: #fef3c7; color: #78350f; }
+.verdict.bad  { background: #fee2e2; color: #7f1d1d; }
+@media (prefers-color-scheme: dark) {
+  .verdict.good { background: #14321f; color: #86efac; }
+  .verdict.ok   { background: #3b2f14; color: #fcd34d; }
+  .verdict.bad  { background: #3d1c1c; color: #fca5a5; }
+}
+
+/* 입력창은 접히지 않는다. 수치 패널이 위에 있으면 입력창이 화면 밖으로 밀린다. */
+.editor textarea { min-height: 62px; resize: vertical; }
+.editor-head .pane-title { display: flex; align-items: center; gap: 6px; }
+
+/* 수치는 접어 둔다. 필요할 때만 편다. */
+.typo-wrap { margin-top: 10px; border-top: 1px solid var(--line); padding-top: 8px; }
+.typo-wrap > summary {
+  cursor: pointer; font-size: 11px; color: var(--muted);
+  display: flex; align-items: center; gap: 6px;
+}
+.typo-wrap > summary::marker { color: var(--muted); }
+.typo { margin: 8px 0 0; }
+.typo-row { grid-template-columns: 92px 1fr 46px 34px; }

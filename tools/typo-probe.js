@@ -67,6 +67,32 @@ const check = (name, ok, detail = '') => {
       rows.every((r) => [r.f, r.s, r.t, r.a, r.total].every((v) => v >= 0 && v <= 1)));
   }
 
+  // ---- 고해상도 헤드라인 (v1.6 에서 고친 검출) ----
+  console.log('\n[고해상도 헤드라인 분리]');
+  await page.goto(`http://127.0.0.1:${PORT}/index.html`);
+  await page.setInputFiles('#fileInput', path.join(ROOT, 'assets/sample-headline.png'));
+  await page.waitForFunction(() => window.__app.state.imageData && !window.__app.state.analyzing,
+    null, {timeout: 300000});
+  const hl = await page.evaluate(() => window.__app.state.blocks.map((b) => ({
+    id: b.id, n: b.lines.length, w: b.bbox.x1 - b.bbox.x0, h: b.bbox.y1 - b.bbox.y0,
+    text: (b.originalText || '').replace(/\n/g, ' '),
+  })));
+  for (const x of hl) console.log(`  ${x.id.padEnd(3)} ${x.n}줄 ${x.w}x${x.h}  "${x.text}"`);
+
+  // RLSA 거리가 픽셀 고정이라 큰 글자에서 낱말이 안 이어졌다. 파란 줄이
+  // `지금 공단기로` / `넘어오면 전-직렬` / `50만원 할인!` 세 조각으로 갈렸었다.
+  const blue = hl.filter((x) => x.text.includes('공단기로') || x.text.includes('할인'));
+  check('파란 한 줄이 한 블록이다', blue.length === 1,
+    blue.map((x) => `"${x.text}"`).join(' + ') || '못 찾음');
+  check('낱말이 다 이어졌다',
+    blue.length === 1 && /지금.*넘어오면.*할인/.test(blue[0].text),
+    blue[0] ? blue[0].text : '—');
+
+  // 크기가 다른 두 줄을 한 블록으로 묶으면 합성이 크기를 하나로 통일해 둘 다 망친다.
+  check('크기가 다른 두 줄은 안 묶인다', hl.every((x) => x.n === 1),
+    hl.map((x) => `${x.id}:${x.n}줄`).join(' '));
+  check('보이는 줄 수(4)만큼 나온다', hl.length === 4, `${hl.length}블록`);
+
   // ---- 정렬 안정성: 이번 수정의 핵심 ----
   console.log('\n[정렬 안정성 — 문구 길이가 바뀌어도 자리가 안 흔들리는가]');
   const drift = await page.evaluate(() => {
@@ -137,26 +163,54 @@ const check = (name, ok, detail = '') => {
   const target = await page.evaluate(() =>
     window.__app.state.blocks.find((b) => b.originalText && !b.locked).id);
   await page.evaluate((id) => window.__app.selectBlock(id), target);
-  check('패널이 뜬다', await page.isVisible('#typoPanel'));
+
+  // 판정 문장이 제일 먼저·크게 보여야 한다. 수치는 접혀 있는 게 정상이다.
+  check('판정 문장이 먼저 보인다', await page.isVisible('#verdict')
+    && (await page.textContent('#verdict')).length > 10,
+    await page.textContent('#verdict'));
+  check('블록 제목에 안전도 칩이 붙는다',
+    (await page.$$('#editorTitle .chip')).length === 1,
+    await page.textContent('#editorTitle'));
+  check('수치는 기본으로 접혀 있다',
+    await page.evaluate(() => !document.getElementById('typoWrap').open));
+  check('접힌 상태에서도 총점은 보인다',
+    /%$/.test(await page.textContent('#typoTotalMini')),
+    await page.textContent('#typoTotalMini'));
+
+  await page.click('#typoWrap > summary');
+  check('펴면 패널이 뜬다', await page.isVisible('#typoPanel'));
   const keys = await page.evaluate(() =>
     [...document.querySelectorAll('#typoPanel .typo-k')].map((n) => n.textContent));
   check('다섯 항목이 다 있다',
-    ['폰트', '크기', '자간', '행간', '정렬'].every((k) => keys.includes(k)), keys.join(' '));
-  check('총 유사도가 뜬다', /%$/.test(await page.textContent('#typoPanel .typo-total')),
-    await page.textContent('#typoPanel .typo-total'));
-  check('판정 문장이 있다', (await page.textContent('#typoPanel .typo-note')).length > 5,
-    await page.textContent('#typoPanel .typo-note'));
+    ['글꼴', '글자 크기', '글자 사이 (자간)', '줄 사이 (행간)', '가로 위치']
+      .every((k) => keys.includes(k)), keys.join(' / '));
+  check('전문 용어를 그대로 쓰지 않는다',
+    !keys.includes('폰트') && !keys.includes('자간') && !keys.includes('행간'), keys.join(' / '));
 
-  const before = await page.textContent('#typoPanel .typo-total');
+  const before = await page.textContent('#typoTotalMini');
   await page.selectOption('#fontSelect', {label: 'Black Han Sans 400 (판별 제외)'});
   await page.waitForTimeout(400);
+  await page.evaluate(() => { document.getElementById('typoWrap').open = true; });
   const after = await page.evaluate(() => ({
-    total: document.querySelector('#typoPanel .typo-total').textContent,
+    total: document.getElementById('typoTotalMini').textContent,
     font: document.querySelectorAll('#typoPanel .typo-v')[0].textContent.trim(),
   }));
   check('폰트를 바꾸면 다시 계산한다', after.font.startsWith('Black Han Sans'),
     `${before} → ${after.total} / ${after.font}`);
   await page.selectOption('#fontSelect', {label: '자동판별'});
+
+  console.log('\n[안전도 판정]');
+  const chips = await page.evaluate(() =>
+    [...document.querySelectorAll('#blockList .item')].map((n) => ({
+      id: n.dataset.id, chip: n.querySelector('.chip')?.textContent || null,
+    })));
+  for (const c of chips) console.log(`  ${c.id.padEnd(4)} ${c.chip}`);
+  check('모든 블록에 판정이 붙는다', chips.every((c) => c.chip), JSON.stringify(chips));
+  check('판정은 정해진 말만 쓴다',
+    chips.every((c) => ['안전', '글꼴 다름', '문구 확인', '위험', '편집 불가', '대기'].includes(c.chip)),
+    [...new Set(chips.map((c) => c.chip))].join(' / '));
+  check('유형 문자(A/B/C)를 그대로 보여 주지 않는다',
+    !chips.some((c) => /^[ABC]$/.test(c.chip)));
 
   // ---- 수정 초기화 ----
   console.log('\n[수정 초기화]');

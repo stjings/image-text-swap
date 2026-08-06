@@ -109,5 +109,13 @@ const OCR = (() => {
     if (worker) { await worker.terminate(); worker = null; booting = null; }
   }
 
-  return {init, preprocess, recognizeBlock, terminate};
+  // 검증 도구가 PSM 을 바꿔 가며 비교할 수 있게 원시 인식도 노출한다.
+  const recognizeWith = async (canvas, psm) => {
+    await worker.setParameters({tessedit_pageseg_mode: psm, preserve_interword_spaces: '1'});
+    const {data} = await worker.recognize(canvas);
+    return {text: (data.text || '').replace(/\s*\n\s*/g, '\n').trim(),
+            confidence: data.confidence ?? 0};
+  };
+
+  return {init, preprocess, recognizeBlock, recognizeWith, terminate};
 })();

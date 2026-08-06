@@ -95,8 +95,8 @@ const check = (name, ok, detail = '') => {
   }));
   check('판별 제외 폰트도 직접 고를 수 있다', mode.sel === 'Black Han Sans 400', mode.sel);
   check('직접 선택이 판별 결과를 덮어쓴다', mode.used === 'Black Han Sans 400', mode.used);
-  check('목록에 직접 선택 표시가 뜬다',
-    /직접 선택/.test(await page.textContent('#blockList')));
+  check('목록에 직접 고름 표시가 뜬다',
+    /직접 고름/.test(await page.textContent('#blockList')));
 
   await page.selectOption('#fontSelect', {label: '자동판별'});
   const back = await page.evaluate(() => FontMatch.label(window.__app.fontFor(window.__app.state.blocks[0])));
