@@ -227,12 +227,11 @@ const Compose = (() => {
   /**
    * @param img   원본 ImageData
    * @param blocks 전체 블록 (충돌 검사에 쓴다)
-   * @param font  {family, weight}
+   * @param pickFont (block) => {family, weight}  블록마다 다른 폰트를 쓸 수 있다
    * @returns {canvas, notes[]}  notes 는 사용자에게 보여줄 조치 사유
    */
-  async function compose(img, blocks, font) {
+  async function compose(img, blocks, pickFont) {
     await document.fonts.ready;
-    await document.fonts.load(`${font.weight} 100px "${font.family}"`, '가힣0');
 
     const W = img.width, H = img.height;
     const out = new ImageData(new Uint8ClampedArray(img.data), W, H);
@@ -254,7 +253,16 @@ const Compose = (() => {
     const ctx = canvas.getContext('2d', {willReadFrequently: true});
     ctx.putImageData(out, 0, 0);
 
+    // 쓸 폰트를 먼저 전부 로드한다. 로드 전에 그리면 조용히 폴백 폰트로 찍힌다.
+    const fonts = new Map();
     for (const b of doable) {
+      const f = pickFont(b);
+      fonts.set(b.id, f);
+      await document.fonts.load(`${f.weight} 100px "${f.family}"`, '가힣0Aa');
+    }
+
+    for (const b of doable) {
+      const font = fonts.get(b.id);
       const align = guessAlign(b.lines);
       const texts = (b.editedText || '').split('\n');
       const boxes = b.lines.map((l) => l.bbox);
@@ -315,5 +323,10 @@ const Compose = (() => {
     ctx.globalAlpha = 1;
   }
 
-  return {compose};
+  // 폰트 판별(fontmatch.js)이 같은 피팅·렌더 경로를 써야 한다. 판별과 합성이
+  // 다른 방식으로 글자를 놓으면 "판별할 때 닮았던 폰트"가 합성에서 달라진다.
+  return {
+    compose,
+    util: {setFont, inkMetrics, fitSize, fitTracking, guessAlign, removalMask, ALPHA_T, INK_FAR},
+  };
 })();

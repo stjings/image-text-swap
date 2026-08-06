@@ -279,3 +279,8 @@ body {
 .note-warn { background: #fef3c7; color: #92400e; }
 .note-skip { background: var(--bg); color: var(--muted); }
 @media (prefers-color-scheme: dark) { .note-warn { background: #3b2f14; color: #fbbf24; } }
+
+/* ---------- 폰트 판별 표시 ---------- */
+.fontinfo { margin: 4px 0 0; font-size: 11px; color: var(--muted); }
+.fontinfo .lowgap { color: #b45309; }
+.editor-orig .fontinfo { margin-top: 4px; }

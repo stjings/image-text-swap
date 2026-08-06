@@ -81,11 +81,11 @@
 </main>
 
 <footer class="bottombar">
-  <fieldset class="fontmode" disabled>
+  <fieldset id="fontMode" class="fontmode" disabled>
     <legend class="sr-only">폰트 처리</legend>
     <label><input type="radio" name="fontmode" value="auto" checked> 자동판별에 맡기기</label>
     <label><input type="radio" name="fontmode" value="manual"> 직접 선택</label>
-    <select id="fontSelect" aria-label="폰트 선택"><option>Noto Sans KR</option></select>
+    <select id="fontSelect" aria-label="폰트 선택" disabled></select>
   </fieldset>
   <div class="bottom-right">
     <span id="dirtyCount" class="dirtycount"></span>
@@ -99,6 +99,7 @@
 <script src="./js/detect.js"></script>
 <script src="./js/ocr.js"></script>
 <script src="./js/compose.js"></script>
+<script src="./js/fontmatch.js"></script>
 <script src="./js/app.js"></script>
 </body>
 </html>

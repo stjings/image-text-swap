@@ -20,6 +20,7 @@ const el = {
   saveBtn: $('saveBtn'), revertBtn: $('revertBtn'),
   dirtyCount: $('dirtyCount'), composeBtn: $('composeBtn'),
   toggleBtn: $('toggleBtn'), downloadBtn: $('downloadBtn'), notes: $('notes'),
+  fontMode: $('fontMode'), fontSelect: $('fontSelect'),
 };
 
 /** 앱 상태 (PLAN.md 10장). */
@@ -46,8 +47,14 @@ const TIER_LABEL = {A: '투명 배경', B: '단색 배경', C: '편집 불가'};
 // 실측상 인식에 성공한 블록은 86~96%, 실패한 블록은 0~79% 였다.
 // 신뢰도가 성공/실패를 꽤 잘 가르므로 낮은 블록을 눈에 띄게 표시한다.
 const CONF_LOW = 70;
-// M4는 고정 폰트로 합성한다. 후보 판별은 M5에서 이 값을 대체한다.
+// 자동판별이 실패한 블록에 쓰는 최후 수단.
 const DEFAULT_FONT = {family: 'Noto Sans KR', weight: 700};
+
+/** 블록에 쓸 폰트. 직접 선택 모드면 전 블록에 같은 폰트를 쓴다. */
+function fontFor(b) {
+  if (state.fontMode === 'manual' && state.selectedFont) return state.selectedFont;
+  return b.detectedFont || DEFAULT_FONT;
+}
 
 /* ---------------- 이미지 로드 ---------------- */
 
@@ -137,6 +144,15 @@ async function runAnalysis() {
       renderBlockList();
     }
     state.timing.ocr = Math.round(performance.now() - t1);
+
+    const t2 = performance.now();
+    await FontMatch.detectAll(state.imageData, state.blocks, (i, n) => {
+      setStatus(`폰트 판별 중… ${i + 1} / ${n}`);
+    });
+    state.timing.font = Math.round(performance.now() - t2);
+    renderBlockList();
+    renderEditor();
+    el.fontMode.disabled = false;
     setStatus(null);
   } catch (e) {
     setStatus(`분석 실패: ${e.message}`, true);
@@ -237,6 +253,7 @@ function renderBlockList() {
         ${conf}
       </div>
       <div class="item-text">${txt}</div>
+      ${fontLine(b)}
       ${low ? '<p class="hint">인식 신뢰도가 낮습니다. 문구를 확인해 주세요.</p>' : ''}
     </div>`;
   }).join('');
@@ -285,9 +302,9 @@ function renderEditor() {
     return;
   }
 
-  el.editorOrig.innerHTML = b.originalText
+  el.editorOrig.innerHTML = (b.originalText
     ? `원문 <code>${escapeHtml(b.originalText).replace(/\n/g, ' ⏎ ')}</code>`
-    : '<span class="fail">원문 인식 실패 — 직접 입력하세요</span>';
+    : '<span class="fail">원문 인식 실패 — 직접 입력하세요</span>') + fontLine(b);
   if (document.activeElement !== el.editorText) el.editorText.value = b.draft;
   el.editorText.disabled = false;
   el.editorText.rows = Math.max(2, b.lines.length + 1);
@@ -347,9 +364,8 @@ async function runCompose() {
   setStatus('합성 중…');
   await raf();
   try {
-    const font = state.selectedFont || DEFAULT_FONT;
     const t0 = performance.now();
-    const {canvas, notes} = await Compose.compose(state.imageData, state.blocks, font);
+    const {canvas, notes} = await Compose.compose(state.imageData, state.blocks, fontFor);
     state.result = canvas;
     state.composeNotes = notes;
     state.timing = {...(state.timing || {}), compose: Math.round(performance.now() - t0)};
@@ -396,6 +412,18 @@ function moveSelection(delta) {
   selectBlock(list[next].id);
 }
 
+/** 목록에 보여줄 폰트 한 줄. 직접 선택 모드면 그 폰트를, 아니면 판별 결과를 쓴다. */
+function fontLine(b) {
+  if (state.fontMode === 'manual' && state.selectedFont) {
+    return `<p class="fontinfo">${escapeHtml(FontMatch.label(state.selectedFont))} <span class="dim">(직접 선택)</span></p>`;
+  }
+  const f = b.detectedFont;
+  if (!f) return '';
+  const pct = Math.round(f.score * 100);
+  const warn = f.lowConfidence ? ' <span class="lowgap">후보 간 차이 작음</span>' : '';
+  return `<p class="fontinfo">판별: ${escapeHtml(FontMatch.label(f))} <span class="dim">(유사도 ${pct}%)</span>${warn}</p>`;
+}
+
 const escapeHtml = (s) => s.replace(/[&<>"]/g, (c) => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
 
 function highlight(id) {
@@ -410,6 +438,7 @@ function reset() {
     result: null, showing: 'original', composeNotes: [],
   });
   el.notes.hidden = true;
+  el.fontMode.disabled = true;
   el.overlay.style.display = '';
   el.toggleBtn.disabled = true;
   el.toggleBtn.textContent = '원본 / 결과';
@@ -499,6 +528,26 @@ el.editorText.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); saveBlock(); }
   if (e.key === 'Escape') { e.preventDefault(); el.editorText.blur(); }
 });
+/* ---------------- 폰트 (M5) ---------------- */
+
+el.fontSelect.innerHTML = FontMatch.CANDIDATES
+  .map((f, i) => `<option value="${i}">${FontMatch.label(f)}</option>`).join('');
+
+el.fontMode.addEventListener('change', (e) => {
+  if (e.target.name === 'fontmode') {
+    state.fontMode = e.target.value;
+    el.fontSelect.disabled = state.fontMode !== 'manual';
+    if (state.fontMode === 'manual' && !state.selectedFont) {
+      state.selectedFont = FontMatch.CANDIDATES[+el.fontSelect.value || 0];
+    }
+  } else if (e.target === el.fontSelect) {
+    state.selectedFont = FontMatch.CANDIDATES[+el.fontSelect.value];
+  }
+  renderBlockList();
+  renderEditor();
+  invalidateResult();
+});
+
 el.composeBtn.addEventListener('click', runCompose);
 el.toggleBtn.addEventListener('click', () => showResult(state.showing !== 'result'));
 el.saveBtn.addEventListener('click', saveBlock);
@@ -529,4 +578,4 @@ document.addEventListener('keydown', (e) => {
 });
 
 window.__app = {state, loadFile, runAnalysis, selectBlock, saveBlock, revertBlock,
-                runCompose, showResult};
+                runCompose, showResult, fontFor};
