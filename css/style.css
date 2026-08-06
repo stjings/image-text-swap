@@ -348,3 +348,53 @@ body {
 .lf-item:hover { background: var(--bg); }
 .lf-item.on { background: var(--accent-weak); color: var(--accent); font-weight: 700; }
 .lf-item.on::after { content: ' ✓'; }
+
+/* ---------- 타이포 계측 패널 ---------- */
+.typo {
+  margin: 8px 0; padding: 8px 10px;
+  border: 1px solid var(--line); border-radius: 8px; background: var(--bg);
+  font-variant-numeric: tabular-nums;
+}
+.typo-head {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 6px; padding-bottom: 6px; border-bottom: 1px solid var(--line);
+  font-size: 11px; font-weight: 700;
+}
+.typo-total { font-size: 15px; font-weight: 800; }
+.typo-row {
+  display: grid; grid-template-columns: 34px 1fr 56px 34px;
+  align-items: center; gap: 8px; padding: 2px 0; font-size: 11px;
+}
+.typo-k { color: var(--muted); }
+.typo-v { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.typo-bar { height: 5px; border-radius: 3px; background: var(--line); overflow: hidden; }
+.typo-bar i { display: block; height: 100%; border-radius: 3px; }
+.typo-s { text-align: right; font-weight: 700; }
+.typo-note {
+  margin: 6px 0 0; padding-top: 6px; border-top: 1px solid var(--line);
+  font-size: 11px; line-height: 1.5; color: var(--muted);
+}
+.tscore {
+  display: inline-block; min-width: 30px; padding: 0 4px; margin-right: 4px;
+  border-radius: 3px; text-align: center; font-weight: 700;
+  background: var(--line); color: var(--text);
+}
+
+/* 점수대 — 숫자를 읽지 않고도 걸러지도록 색을 나눈다. */
+.good { color: #15803d; } .typo-bar i.good { background: #22c55e; }
+.ok   { color: #b45309; } .typo-bar i.ok   { background: #f59e0b; }
+.bad  { color: #b91c1c; } .typo-bar i.bad  { background: #ef4444; }
+.tscore.good { background: #dcfce7; color: #15803d; }
+.tscore.ok   { background: #fef3c7; color: #92400e; }
+.tscore.bad  { background: #fee2e2; color: #b91c1c; }
+@media (prefers-color-scheme: dark) {
+  .good { color: #4ade80; } .ok { color: #fbbf24; } .bad { color: #f87171; }
+  .tscore.good { background: #14321f; color: #4ade80; }
+  .tscore.ok   { background: #3b2f14; color: #fbbf24; }
+  .tscore.bad  { background: #3d1c1c; color: #f87171; }
+}
+
+/* '영역 표시'를 꺼도 상자는 남는다 — 보이지만 않을 뿐 고를 수는 있어야 한다. */
+.bk.ghost { border-color: transparent; }
+.bk.ghost i { display: none; }
+.bk.ghost:hover { border-color: rgba(127, 127, 127, .55); }

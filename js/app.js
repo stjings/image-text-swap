@@ -10,7 +10,8 @@ const $ = (id) => document.getElementById(id);
 
 const el = {
   fileInput: $('fileInput'), pickBtn: $('pickBtn'), pickBtn2: $('pickBtn2'),
-  resetBtn: $('resetBtn'), fileName: $('fileName'),
+  revertAllBtn: $('revertAllBtn'), fileName: $('fileName'),
+  viewToggle: $('viewToggle'), typoPanel: $('typoPanel'),
   stage: $('stage'), dropzone: $('dropzone'), viewport: $('viewport'),
   canvas: $('preview'), overlay: $('overlay'), bgToggle: $('bgToggle'),
   info: $('imgInfo'), blockCount: $('blockCount'), blockList: $('blockList'),
@@ -19,7 +20,7 @@ const el = {
   editorText: $('editorText'), editorHint: $('editorHint'), editorClose: $('editorClose'),
   saveBtn: $('saveBtn'), revertBtn: $('revertBtn'),
   dirtyCount: $('dirtyCount'), regionsBtn: $('regionsBtn'),
-  toggleBtn: $('toggleBtn'), downloadBtn: $('downloadBtn'), notes: $('notes'),
+  downloadBtn: $('downloadBtn'), notes: $('notes'),
   fontSelect: $('fontSelect'),
   localFontBtn: $('localFontBtn'), lfPanel: $('lfPanel'), lfBackdrop: $('lfBackdrop'),
   lfClose: $('lfClose'), lfAdded: $('lfAdded'), lfName: $('lfName'), lfAdd: $('lfAdd'),
@@ -86,10 +87,18 @@ async function loadFile(file) {
   state.hasAlpha = state.stats.semi > 0 || state.stats.clear > 0;
   state.blocks = [];
   state.selectedId = null;
+  // 이전 이미지의 합성 결과가 남아 있으면 다운로드 버튼이 옛 그림을 내보낸다.
+  state.result = null;
+  state.showing = 'original';
+  state.composeNotes = [];
 
   el.dropzone.hidden = true;
   el.viewport.hidden = false;
-  el.resetBtn.hidden = false;
+  el.notes.hidden = true;
+  el.editor.hidden = true;
+  el.downloadBtn.disabled = true;
+  renderViewToggle();
+  typoCache.clear();
   el.fileName.textContent = file.name;
   renderInfo(file);
 
@@ -154,6 +163,14 @@ async function runAnalysis() {
       setStatus(`폰트 판별 중… ${i + 1} / ${n}`);
     });
     state.timing.font = Math.round(performance.now() - t2);
+
+    // 정렬은 이미지 전체를 봐야 정해진다. 왼쪽에 붙은 이웃이 있는지, 이미지
+    // 한가운데인지는 블록 하나만 봐서는 알 수 없다. 한 번 정해 블록에 박아 두면
+    // 합성·판별·계측이 모두 같은 값을 쓴다.
+    for (const b of state.blocks) {
+      b.align = Compose.util.guessAlign(b, state.blocks, state.imageData.width);
+    }
+    typoCache.clear();
     renderBlockList();
     renderEditor();
     el.fontSelect.disabled = false;
@@ -207,19 +224,18 @@ function renderInfo(file) {
 /** 블록 경계를 이미지 위에 겹쳐 그린다.
  *  캔버스는 CSS로만 축소되므로 % 좌표를 쓰면 확대/축소와 무관하게 맞는다. */
 function renderOverlay() {
-  // 원본과 결과를 눈으로 비교할 때 테두리가 덮여 있으면 글자를 못 본다.
-  // '영역 표시'를 끄면 선택한 블록 하나만 남고, 선택까지 풀면 완전히 깨끗해진다.
+  // 상자는 **항상** 만든다. '영역 표시'를 끄면 안 보이게만 하고 클릭은 살려 둔다.
+  // 예전에는 아예 안 그려서, 표시를 끄면 미리보기에서 블록을 고를 수 없었다.
+  // 보이는 것과 고를 수 있는 것은 다른 문제다.
   const W = el.canvas.width, H = el.canvas.height;
   const shown = new Set(visibleBlocks().map((b) => b.id));
-  const draw = state.showAllRegions
-    ? state.blocks
-    : state.blocks.filter((b) => b.id === state.selectedId);
-  el.overlay.innerHTML = draw.map((b) => {
+  el.overlay.innerHTML = state.blocks.map((b) => {
     const {x0, y0, x1, y1} = b.bbox;
     const style = `left:${x0 / W * 100}%;top:${y0 / H * 100}%;`
       + `width:${(x1 - x0) / W * 100}%;height:${(y1 - y0) / H * 100}%`;
     const cls = ['bk', 'bk-' + b.tier];
     if (b.id === state.selectedId) cls.push('sel');
+    else if (!state.showAllRegions) cls.push('ghost');
     if (!shown.has(b.id)) cls.push('faded');
     if (b.dirty) cls.push('dirty');
     return `<div class="${cls.join(' ')}" data-id="${b.id}" style="${style}"`
@@ -255,7 +271,7 @@ function renderBlockList() {
         : '<span class="pending">인식 대기…</span>');
     const low = typeof b.confidence === 'number' && b.originalText && b.confidence < CONF_LOW;
     const conf = typeof b.confidence === 'number' && b.originalText
-      ? `<span class="conf${low ? ' low' : ''}" title="OCR 신뢰도">${Math.round(b.confidence)}%</span>` : '';
+      ? `<span class="conf${low ? ' low' : ''}" title="OCR 신뢰도">인식 ${Math.round(b.confidence)}%</span>` : '';
     const sel = b.id === state.selectedId ? ' sel' : '';
     return `<div class="item item-${b.tier}${b.locked ? ' locked' : ''}${low ? ' lowconf' : ''}${sel}"
                  data-id="${b.id}" role="button" tabindex="-1">
@@ -295,6 +311,7 @@ function selectBlock(id, {scroll = true} = {}) {
 
 function renderEditor() {
   const b = byId(state.selectedId);
+  renderTypoPanel(b);
   if (!b) { el.editor.hidden = true; return; }
   el.editor.hidden = false;
   el.editorTitle.textContent = `블록 ${b.id} · ${TIER_LABEL[b.tier]}`;
@@ -356,6 +373,24 @@ function renderDirtyCount() {
   const n = state.blocks.filter((b) => b.dirty).length;
   const un = state.blocks.filter(isUnsaved).length;
   el.dirtyCount.textContent = n ? `수정 ${n}개${un ? ` · 미저장 ${un}` : ''}` : '';
+  el.revertAllBtn.disabled = !n && !un;
+  el.revertAllBtn.textContent = n || un ? `수정 초기화 (${n + un})` : '수정 초기화';
+}
+
+/** 모든 블록을 원문으로 되돌린다. 파일은 그대로 둔다. */
+async function revertAll() {
+  const targets = state.blocks.filter((b) => b.dirty || isUnsaved(b));
+  if (!targets.length) return;
+  if (!confirm(`수정한 ${targets.length}개 블록을 전부 원래 문구로 되돌립니다.`)) return;
+  for (const b of targets) {
+    b.draft = b.originalText;
+    b.editedText = b.originalText;
+    b.dirty = false;
+  }
+  renderBlockList();
+  renderEditor();
+  renderDirtyCount();
+  await refreshResult();
 }
 
 /**
@@ -416,10 +451,17 @@ function showResult(on, {keepSelection = false} = {}) {
   ctx.clearRect(0, 0, el.canvas.width, el.canvas.height);
   if (on) ctx.drawImage(state.result, 0, 0);
   else ctx.putImageData(state.imageData, 0, 0);
-  el.toggleBtn.disabled = !state.result;
-  el.toggleBtn.textContent = on ? '원본 보기' : '결과 보기';
+  renderViewToggle();
   el.downloadBtn.disabled = !state.result;
   renderOverlay();
+}
+
+function renderViewToggle() {
+  for (const btn of el.viewToggle.children) {
+    const isResult = btn.dataset.view === 'result';
+    btn.classList.toggle('on', isResult === (state.showing === 'result'));
+    btn.disabled = isResult && !state.result;
+  }
 }
 
 /* ---------------- 다운로드 (M6) ---------------- */
@@ -463,16 +505,120 @@ function moveSelection(delta) {
 }
 
 /** 목록에 보여줄 폰트 한 줄. 직접 선택 모드면 그 폰트를, 아니면 판별 결과를 쓴다. */
+/* ---------------- 타이포 계측 표시 ---------------- */
+
+// 블록마다 계측 결과를 캐시한다. 폰트가 바뀌면 버린다 — 폰트가 바뀌면 크기·자간·
+// 정렬이 전부 다시 잡히므로 이전 수치는 의미가 없다.
+const typoCache = new Map();
+const typoKey = (b) => `${b.id}|${FontMatch.label(fontFor(b))}`;
+
+function typoFor(b) {
+  if (!state.imageData || !b.originalText || b.locked) return null;
+  const key = typoKey(b);
+  if (typoCache.has(key)) return typoCache.get(key);
+  let m = null;
+  try { m = Typo.measure(state.imageData, b, fontFor(b)); }
+  catch (e) { console.error(e); }
+  typoCache.set(key, m);
+  return m;
+}
+
+const pct = (v) => Math.round(v * 100);
+
+/**
+ * 점수대별 색. 눈으로 훑을 때 숫자를 읽지 않고도 걸러지게 한다.
+ *
+ * 기준을 항목마다 다르게 둔다. 실루엣 IoU 는 정답 폰트를 써도 80%를 넘기 어렵고
+ * (실측 중앙값 47%), 크기·자간·정렬은 맞으면 100%가 나온다. 같은 잣대를 대면
+ * 폰트는 늘 빨갛고 나머지는 늘 초록이라 색이 아무 정보도 주지 않는다.
+ */
+const BANDS = {
+  font: [0.65, 0.40], total: [0.85, 0.70], fit: [0.95, 0.85],
+};
+const scoreClass = (v, kind = 'fit') => {
+  const [g, o] = BANDS[kind] || BANDS.fit;
+  return v >= g ? 'good' : v >= o ? 'ok' : 'bad';
+};
+
+/** 목록용 한 줄 요약. */
 function fontLine(b) {
-  if (state.fontMode === 'manual' && state.selectedFont) {
-    return `<p class="fontinfo">${escapeHtml(FontMatch.label(state.selectedFont))} <span class="dim">(직접 선택)</span></p>`;
+  const m = typoFor(b);
+  if (!m) {
+    if (state.fontMode === 'manual' && state.selectedFont) {
+      return `<p class="fontinfo">${escapeHtml(FontMatch.label(state.selectedFont))} <span class="dim">(직접 선택)</span></p>`;
+    }
+    const f = b.detectedFont;
+    if (!f) return '';
+    return `<p class="fontinfo">판별: ${escapeHtml(FontMatch.label(f))}</p>`;
   }
-  const f = b.detectedFont;
-  if (!f) return '';
-  const pct = Math.round(f.score * 100);
-  const warn = f.adjusted ? ' <span class="lowgap">이미지 기준으로 맞춤</span>'
-    : f.lowConfidence ? ' <span class="lowgap">후보 간 차이 작음</span>' : '';
-  return `<p class="fontinfo">판별: ${escapeHtml(FontMatch.label(f))} <span class="dim">(유사도 ${pct}%)</span>${warn}</p>`;
+  const manual = state.fontMode === 'manual' && state.selectedFont;
+  return `<p class="fontinfo">
+    <span class="tscore ${scoreClass(m.total, 'total')}" title="원문 재현 유사도">${pct(m.total)}%</span>
+    ${escapeHtml(m.font.label)}
+    <span class="dim">· ${m.size.px.toFixed(1)}px · 자간 ${fmtTrack(m.tracking)}</span>
+    ${manual ? '<span class="dim">(직접 선택)</span>' : ''}
+  </p>`;
+}
+
+const fmtTrack = (t) => `${t.pct >= 0 ? '+' : ''}${t.pct.toFixed(1)}%`;
+
+/** 상세 계측 패널 — 피그마의 타이포 속성처럼 항목별로 나눠 보여 준다. */
+function renderTypoPanel(b) {
+  const m = b && !b.locked ? typoFor(b) : null;
+  el.typoPanel.hidden = !m;
+  if (!m) return;
+
+  const row = (key, value, score, note, kind) => `
+    <div class="typo-row">
+      <span class="typo-k">${key}</span>
+      <span class="typo-v">${value}</span>
+      ${score === null
+        ? `<span class="typo-bar"></span><span class="typo-s dim">${note || '—'}</span>`
+        : `<span class="typo-bar"><i class="${scoreClass(score, kind)}" style="width:${pct(score)}%"></i></span>
+           <span class="typo-s ${scoreClass(score, kind)}">${pct(score)}%</span>`}
+    </div>`;
+
+  const d = b.detectedFont;
+  const fontNote = state.fontMode === 'manual' && state.selectedFont ? '직접 선택'
+    : d && d.adjusted ? '이미지 기준으로 맞춤'
+    : d && d.lowConfidence ? '후보 간 차이 작음' : '';
+
+  el.typoPanel.innerHTML = `
+    <div class="typo-head">
+      <span>타이포 계측 <span class="dim">원문 재현 기준</span></span>
+      <span class="typo-total ${scoreClass(m.total, 'total')}">${pct(m.total)}%</span>
+    </div>
+    ${row('폰트', escapeHtml(m.font.label)
+        + (fontNote ? ` <span class="lowgap">${fontNote}</span>` : ''), m.font.score, null, 'font')}
+    ${row('크기', `${m.size.px.toFixed(1)} px`, m.size.score)}
+    ${row('자간', `${fmtTrack(m.tracking)} <span class="dim">(${m.tracking.px.toFixed(2)}px)</span>`
+        + (m.tracking.capped ? ' <span class="lowgap">상한</span>' : ''), m.tracking.score)}
+    ${m.leading
+      ? row('행간', `${m.leading.px} px <span class="dim">(${m.leading.ratio.toFixed(2)}배`
+          + `, 기본 대비 ${m.leading.delta >= 0 ? '+' : ''}${m.leading.delta.toFixed(0)}%)</span>`,
+          null, '원본 유지')
+      : row('행간', '<span class="dim">한 줄 — 측정 불가</span>', null, '—')}
+    ${row('정렬', `${m.align.label} <span class="dim">· ${m.align.drift < 0.05
+        ? '문구가 바뀌어도 고정'
+        : `한 글자 줄면 ${m.align.drift.toFixed(1)}px 이동`}</span>`, m.align.score)}
+    <p class="typo-note">${typoVerdict(m)}</p>`;
+}
+
+/**
+ * 수치를 한 문장으로 옮긴다. 담당자가 "이 블록을 그대로 바꿔도 되나"를 판단하는
+ * 데 필요한 것은 백분율이 아니라 이 문장이다.
+ */
+function typoVerdict(m) {
+  const bad = [];
+  if (m.tracking.score < 0.9 || m.tracking.capped) bad.push('폭');
+  if (m.align.score < 0.95) bad.push('위치');
+  if (m.size.score < 0.9) bad.push('크기');
+  if (bad.length) return `${bad.join('·')}이(가) 원본과 어긋납니다. 교체하면 눈에 띕니다.`;
+
+  const drift = m.align.drift >= 0.05
+    ? ` 다만 ${m.align.label} 정렬이라 문구 길이가 바뀌면 좌우로 밀립니다.` : '';
+  if (m.font.score >= 0.7) return `자리·크기·자간이 원본과 맞습니다. 그대로 교체해도 됩니다.${drift}`;
+  return `자리·크기·자간은 맞습니다. 글자 모양만 원본과 다릅니다.${drift}`;
 }
 
 const escapeHtml = (s) => s.replace(/[&<>"]/g, (c) => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
@@ -482,39 +628,12 @@ function highlight(id) {
   el.blockList.querySelectorAll('.item').forEach((n) => n.classList.toggle('on', n.dataset.id === id));
 }
 
-function reset() {
-  Object.assign(state, {
-    fileName: null, sourceImage: null, imageData: null, stats: null,
-    blocks: [], selectedId: null, analyzing: false, filter: 'all',
-    result: null, showing: 'original', composeNotes: [], showAllRegions: true,
-  });
-  el.regionsBtn.classList.add('on');
-  el.notes.hidden = true;
-  el.fontSelect.disabled = true;
-  el.regionsBtn.disabled = true;
-  el.toggleBtn.disabled = true;
-  el.toggleBtn.textContent = '원본 보기';
-  el.downloadBtn.disabled = true;
-  el.editor.hidden = true;
-  el.filterBar.hidden = true;
-  el.dirtyCount.textContent = '';
-  el.viewport.hidden = true;
-  el.dropzone.hidden = false;
-  renderInfo(null);
-  el.resetBtn.hidden = true;
-  el.fileName.textContent = '';
-  el.fileInput.value = '';
-  el.overlay.innerHTML = '';
-  setStatus(null);
-  renderBlockList();
-}
-
 /* ---------------- 이벤트 ---------------- */
 
 const openPicker = () => el.fileInput.click();
 el.pickBtn.addEventListener('click', openPicker);
 el.pickBtn2.addEventListener('click', openPicker);
-el.resetBtn.addEventListener('click', reset);
+el.revertAllBtn.addEventListener('click', revertAll);
 el.fileInput.addEventListener('change', (e) => loadFile(e.target.files[0]));
 
 let dragDepth = 0;
@@ -615,6 +734,7 @@ el.fontSelect.addEventListener('change', async () => {
   const v = el.fontSelect.value;
   state.fontMode = v === 'auto' ? 'auto' : 'manual';
   state.selectedFont = v === 'auto' ? null : fontOptions[+v];
+  typoCache.clear();
   renderBlockList();
   renderEditor();
   await refreshResult();
@@ -638,6 +758,7 @@ async function applyLocalFonts({redetect} = {}) {
   } finally {
     state.analyzing = false;
   }
+  typoCache.clear();
   renderBlockList();
   renderEditor();
   await refreshResult();
@@ -755,7 +876,11 @@ el.regionsBtn.addEventListener('click', () => {
 });
 
 // 버튼으로 전환할 때만 선택을 푼다. 내부 갱신은 편집 맥락을 유지해야 한다.
-el.toggleBtn.addEventListener('click', () => showResult(state.showing !== 'result'));
+el.viewToggle.addEventListener('click', (e) => {
+  const btn = e.target.closest('button[data-view]');
+  if (!btn || btn.disabled) return;
+  showResult(btn.dataset.view === 'result');
+});
 el.downloadBtn.addEventListener('click', download);
 el.saveBtn.addEventListener('click', saveBlock);
 el.revertBtn.addEventListener('click', revertBlock);

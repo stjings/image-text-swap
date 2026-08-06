@@ -124,15 +124,24 @@ const CASES = [
   console.log(`       조치: ${rb.notes.length ? rb.notes.map((n) => n.text).join(' / ') : '없음'}  (${rb.ms}ms)`);
 
   console.log('\n[원본/결과 토글]');
-  const label = () => page.textContent('#toggleBtn');
+  // 한 버튼이 이름을 바꾸는 대신, 두 버튼이 함께 뜨고 켜진 쪽이 칠해진다.
+  const onView = () => page.evaluate(() =>
+    [...document.querySelectorAll('#viewToggle button')]
+      .filter((b) => b.classList.contains('on')).map((b) => b.dataset.view));
   check('저장 직후에는 결과를 보고 있다',
     await page.evaluate(() => window.__app.state.showing) === 'result');
-  check('버튼이 원본 보기로 안내한다', (await label()) === '원본 보기', await label());
-  await page.click('#toggleBtn');
-  check('누르면 원본으로 바뀐다',
+  check('결과 쪽이 켜져 있다', JSON.stringify(await onView()) === '["result"]',
+    JSON.stringify(await onView()));
+  check('두 선택지가 함께 보인다',
+    await page.evaluate(() => document.querySelectorAll('#viewToggle button').length) === 2);
+  await page.click('#viewToggle button[data-view="original"]');
+  check('원본을 누르면 원본으로 바뀐다',
     await page.evaluate(() => window.__app.state.showing) === 'original');
-  check('버튼이 결과 보기로 바뀐다', (await label()) === '결과 보기', await label());
-  await page.click('#toggleBtn');
+  check('원본 쪽이 켜진다', JSON.stringify(await onView()) === '["original"]',
+    JSON.stringify(await onView()));
+  await page.click('#viewToggle button[data-view="result"]');
+  check('결과로 되돌아온다',
+    await page.evaluate(() => window.__app.state.showing) === 'result');
 
   await page.screenshot({path: path.join(OUT, 'compose-result-view.png'), fullPage: true});
 

@@ -40,6 +40,7 @@ js/detect.js    배경 유형 판정 · 잉크 검출 · 블록 분리 · 색 �
 js/ocr.js       Tesseract.js 래퍼 (전처리 · 인식)
 js/compose.js   제거 · 렌더 · 자간 · 합성 · 오버플로
 js/fontmatch.js 폰트 후보 렌더 · 실루엣 비교 · 자동판별
+js/typo.js      폰트·크기·자간·행간·정렬 계측
 js/localfont.js 사용자 PC에 설치된 폰트를 후보로 등록
 fonts/          웹폰트 25종 (woff2) + fonts.css
 vendor/         Tesseract 자산 자체 호스팅 (약 17MB)
@@ -61,6 +62,7 @@ NODE_PATH=$(npm root -g) node tools/compose-probe.js # 합성·오버플로·픽
 NODE_PATH=$(npm root -g) node tools/font-probe.js    # 폰트 판별·직접 선택 검사
 NODE_PATH=$(npm root -g) node tools/deploy-probe.js  # 배포물·하위경로·다운로드 검사
 NODE_PATH=$(npm root -g) node tools/localfont-probe.js # 내 PC 폰트 등록·후보 편입 검사
+NODE_PATH=$(npm root -g) node tools/typo-probe.js     # 타이포 계측·정렬 안정성 검사
 NODE_PATH=$(npm root -g) node spike/run.js          # M0 파이프라인 재실행
 python3 tools/tier-probe.py                         # 배경 유형 판정 검증
 ```

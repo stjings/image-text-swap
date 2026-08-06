@@ -130,7 +130,7 @@ function check(name, ok, detail = '') {
   }, TARGET);
   check('저장 직후에는 선택이 유지된다',
     await page.evaluate(() => window.__app.state.selectedId) === TARGET);
-  await page.click('#toggleBtn');
+  await page.click('#viewToggle button[data-view="original"]');
   check('원본/결과를 전환하면 선택이 풀린다',
     await page.evaluate(() => window.__app.state.selectedId) === null);
   await page.evaluate(() => window.__app.revertBlock && null);
@@ -141,14 +141,26 @@ function check(name, ok, detail = '') {
   }, TARGET);
 
   console.log('\n[영역 표시 토글]');
+  // 표시를 꺼도 상자는 남는다(투명). 보이는 것과 고를 수 있는 것은 다른 문제다.
   await page.evaluate((id) => window.__app.selectBlock(id), TARGET);
-  const shownCount = () => page.evaluate(() => document.querySelectorAll('#overlay .bk').length);
+  const boxCount = () => page.evaluate(() => document.querySelectorAll('#overlay .bk').length);
+  const visCount = () => page.evaluate(() =>
+    document.querySelectorAll('#overlay .bk:not(.ghost)').length);
   const nAll = await page.evaluate(() => window.__app.state.blocks.length);
-  check('기본은 전체 표시', await shownCount() === nAll, `${await shownCount()}/${nAll}`);
+  check('기본은 전체 표시', await visCount() === nAll, `${await visCount()}/${nAll}`);
   await page.click('#regionsBtn');
-  check('끄면 선택한 블록만 남는다', await shownCount() === 1, String(await shownCount()));
+  check('끄면 선택한 블록만 보인다', await visCount() === 1, String(await visCount()));
+  check('안 보여도 상자는 남아 있다', await boxCount() === nAll, `${await boxCount()}/${nAll}`);
   await page.click('#editorClose');
-  check('선택까지 풀면 완전히 깨끗해진다', await shownCount() === 0, String(await shownCount()));
+  check('선택까지 풀면 화면이 깨끗해진다', await visCount() === 0, String(await visCount()));
+
+  // 예전에는 여기서 미리보기 클릭이 아무 일도 안 했다. 목록에서만 고를 수 있었다.
+  const other = await page.evaluate(() => window.__app.state.blocks[0].id);
+  await page.click(`#overlay .bk[data-id="${other}"]`);
+  check('표시를 꺼도 미리보기 클릭으로 고를 수 있다',
+    await page.evaluate(() => window.__app.state.selectedId) === other,
+    await page.evaluate(() => window.__app.state.selectedId));
+  await page.click('#editorClose');
   await page.click('#regionsBtn');
 
   console.log('\n[키보드]');

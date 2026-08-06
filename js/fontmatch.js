@@ -106,29 +106,38 @@ const FontMatch = (() => {
   function renderSilhouette(ctx, w, h, block, font) {
     ctx.clearRect(0, 0, w, h);
     ctx.fillStyle = '#000';
-    const {setFont, inkMetrics, fitSize, fitTracking, guessAlign} = Compose.util;
-    const align = guessAlign(block.lines);
-    const srcLines = (block.originalText || '').split('\n');
+    const {setFont, inkMetrics, fitTracking, layout, inkX} = Compose.util;
+    const {boxes, srcLines, size, align} = layout(ctx, block, font);
+    if (!size) return null;
     const ox = block.bbox.x0, oy = block.bbox.y0;
 
-    const sizes = block.lines.map((l, i) =>
-      fitSize(ctx, font, srcLines[i] || '가', l.bbox.y1 - l.bbox.y0)).filter(Boolean);
-    if (!sizes.length) return null;
-    const size = sizes.slice().sort((a, b) => a - b)[Math.floor(sizes.length / 2)];
-
-    for (let i = 0; i < block.lines.length; i++) {
+    for (let i = 0; i < boxes.length; i++) {
       const text = srcLines[i];
       if (!text) continue;
-      const box = block.lines[i].bbox;
+      const box = boxes[i];
       const track = fitTracking(ctx, font, text, size, box.x1 - box.x0);
       setFont(ctx, font, size, track);
       const m = inkMetrics(ctx, text);
       const cy = (box.y0 + box.y1) / 2 - oy;
-      const x = align === 'left' ? box.x0 - ox + m.left
-        : (box.x0 + box.x1) / 2 - ox - m.w / 2 + m.left;
-      ctx.fillText(text, x, cy - m.h / 2 + m.asc);
+      ctx.fillText(text, inkX(align, box, m) - ox + m.left, cy - m.h / 2 + m.asc);
     }
     return true;
+  }
+
+  /** 폰트 하나의 실루엣 유사도. 타이포 계측(typo.js)이 임의 폰트에 대해 쓴다. */
+  function scoreFont(img, block, font) {
+    if (!block.originalText || !block.lines.length) return null;
+    const {x0, y0, x1, y1} = block.bbox;
+    const w = x1 - x0, h = y1 - y0;
+    if (w < 4 || h < 4) return null;
+    const canvas = document.createElement('canvas');
+    canvas.width = w; canvas.height = h;
+    const ctx = canvas.getContext('2d', {willReadFrequently: true});
+    if (!renderSilhouette(ctx, w, h, block, font)) return null;
+    const d = ctx.getImageData(0, 0, w, h).data;
+    const cand = new Uint8Array(w * h);
+    for (let i = 0, p = 0; i < d.length; i += 4, p++) cand[p] = d[i + 3] > Compose.util.ALPHA_T ? 1 : 0;
+    return iou(sourceSilhouette(img, block), cand);
   }
 
   const iou = (a, b) => {
@@ -232,5 +241,5 @@ const FontMatch = (() => {
   }
 
   return {CANDIDATES, EXTRA, candidates, all, setLocal,
-          detectFor, detectAll, loadAll, label, GAP_LOW};
+          detectFor, detectAll, scoreFont, loadAll, label, GAP_LOW};
 })();

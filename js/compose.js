@@ -21,6 +21,7 @@ const Compose = (() => {
   const INK_FAR = 96;       // 유형 B 잉크 판정: 배경색과의 채널 절대차 합
   const ANCHOR_MAX = 60;    // 배경 보간 시 좌우로 찾아볼 최대 거리(px)
   const BG_NEAR = 72;       // 배경 앵커로 인정할 대표색과의 최대 색거리
+  const NEIGHBOR = 60;      // 한 줄 블록의 정렬 판단: 왼쪽 이웃으로 볼 최대 간격(px)
 
   /* ---------- 7-5 글자 제거 ---------- */
 
@@ -218,14 +219,80 @@ const Compose = (() => {
     return right - left;
   }
 
-  /* ---------- 정렬 추정 (7-6) ---------- */
+  /* ---------- 정렬 추정 (7-6, v1.5 재작성) ---------- */
 
-  function guessAlign(lines) {
-    if (lines.length < 2) return 'center';
-    const xs = lines.map((l) => l.bbox.x0);
-    const cs = lines.map((l) => (l.bbox.x0 + l.bbox.x1) / 2);
-    const spread = (a) => Math.max(...a) - Math.min(...a);
-    return spread(xs) <= ALIGN_TOL && spread(xs) < spread(cs) ? 'left' : 'center';
+  /**
+   * 블록의 정렬 기준을 추정한다.
+   *
+   * 예전에는 한 줄짜리 블록을 무조건 `center` 로 봤는데, 그게 편집 후 글자가
+   * 옆으로 밀리는 원인이었다. 가운데 정렬은 문구 길이가 바뀌면 **차이의 절반만큼
+   * 양옆으로 흔든다.** 실측: `~8/31(월)까지` → `~9/3(월)까지` 한 글자가 줄자
+   * 시작 x 가 3.1px 오른쪽으로 갔다. 왼쪽 정렬이면 0px 이다.
+   *
+   * 한 줄에는 정렬을 알아낼 근거가 없다. 근거가 없을 때 흔들리지 않는 쪽을
+   * 고르는 것이 맞다 — 왼쪽이다. `center` 는 증거가 있을 때만 준다.
+   */
+  function guessAlign(block, allBlocks, imageW) {
+    const lines = block.lines || [];
+    if (!lines.length) return 'left';
+
+    if (lines.length >= 2) {
+      const spread = (a) => Math.max(...a) - Math.min(...a);
+      const sx = spread(lines.map((l) => l.bbox.x0));
+      const sr = spread(lines.map((l) => l.bbox.x1));
+      const sc = spread(lines.map((l) => (l.bbox.x0 + l.bbox.x1) / 2));
+      if (sx <= ALIGN_TOL && sx <= sc && sx <= sr) return 'left';
+      if (sr <= ALIGN_TOL && sr < sc && sr < sx) return 'right';
+      return sc < sx && sc < sr ? 'center' : 'left';
+    }
+
+    // 왼쪽에 같은 줄의 다른 블록이 바짝 붙어 있으면 그 뒤에 이어지는 값이다.
+    // `이벤트 기간 :` 다음의 `~8/31(월)까지` 같은 경우로, 왼쪽 끝이 고정이어야 한다.
+    const box = block.bbox;
+    if (allBlocks) {
+      for (const o of allBlocks) {
+        if (o.id === block.id || !o.bbox) continue;
+        if (o.bbox.y1 <= box.y0 || o.bbox.y0 >= box.y1) continue;
+        if (o.bbox.x1 <= box.x0 && box.x0 - o.bbox.x1 <= NEIGHBOR) return 'left';
+      }
+    }
+    // 이미지 한가운데 놓인 한 줄은 가운데 정렬로 본다. 이건 증거가 있는 경우다.
+    if (imageW) {
+      const c = (box.x0 + box.x1) / 2;
+      if (Math.abs(c - imageW / 2) <= Math.max(6, imageW * 0.02)) return 'center';
+    }
+    return 'left';
+  }
+
+  /** 블록에 확정해 둔 정렬을 쓰고, 없으면 그 자리에서 추정한다. */
+  const alignOf = (block) => block.align || guessAlign(block);
+
+  /* ---------- 블록 레이아웃 (합성·판별 공용) ---------- */
+
+  /**
+   * 한 블록의 타이포 값을 정한다. **합성과 판별 표시가 같은 값을 써야 한다.**
+   * 따로 계산하면 "판별 화면에서 본 수치"와 "실제로 찍히는 글자"가 갈린다.
+   */
+  function layout(ctx, block, font, texts) {
+    const boxes = block.lines.map((l) => l.bbox);
+    const srcLines = (block.originalText || '').split('\n');
+    const sizes = boxes.map((bx, i) =>
+      fitSize(ctx, font, srcLines[i] || (texts && texts[i]) || '가', bx.y1 - bx.y0)).filter(Boolean);
+    // 중앙값 중 큰 쪽. 작은 크기를 고르면 글자가 상자를 못 채워 자간으로 메우게 되고,
+    // 그 자간이 새 문구에 그대로 물려가 벌어져 보인다.
+    const size = sizes.length
+      ? sizes.slice().sort((p, q) => p - q)[Math.floor(sizes.length / 2)]
+      : 16;
+    const pitch = boxes.length > 1 ? boxes[1].y0 - boxes[0].y0
+      : (boxes[0].y1 - boxes[0].y0) * 1.5;
+    return {boxes, srcLines, size, pitch, align: alignOf(block)};
+  }
+
+  /** 정렬 기준에 맞춰 잉크 왼쪽 끝이 놓일 x. */
+  function inkX(align, box, m) {
+    if (align === 'left') return box.x0;
+    if (align === 'right') return box.x1 - m.w;
+    return (box.x0 + box.x1) / 2 - m.w / 2;
   }
 
   /* ---------- 진입점 ---------- */
@@ -269,22 +336,10 @@ const Compose = (() => {
 
     for (const b of doable) {
       const font = fonts.get(b.id);
-      const align = guessAlign(b.lines);
       const texts = (b.editedText || '').split('\n');
-      const boxes = b.lines.map((l) => l.bbox);
-      const pitch = boxes.length > 1 ? boxes[1].y0 - boxes[0].y0
-        : (boxes[0].y1 - boxes[0].y0) * 1.5;
-
       // 크기는 블록 안에서 하나로 통일한다. 줄마다 따로 맞추면 글자 구성에 따라
       // 잉크 높이가 달라 같은 크기였던 줄이 서로 다른 크기로 렌더된다.
-      const srcLines = (b.originalText || '').split('\n');
-      const sizes = boxes.map((bx, i) =>
-        fitSize(ctx, font, srcLines[i] || texts[i] || '가', bx.y1 - bx.y0)).filter(Boolean);
-      // 중앙값 중 큰 쪽을 택한다. 작은 크기를 고르면 글자가 상자를 못 채워
-      // 자간으로 메우게 되고, 그 자간이 새 문구에 그대로 물려가 벌어져 보인다.
-      const blockSize = sizes.length
-        ? sizes.slice().sort((p2, q) => p2 - q)[Math.floor(sizes.length / 2)]
-        : 16;
+      const {boxes, srcLines, size: blockSize, pitch, align} = layout(ctx, b, font, texts);
 
       for (let i = 0; i < texts.length; i++) {
         const text = texts[i].trim();
@@ -313,9 +368,7 @@ const Compose = (() => {
     setFont(ctx, font, fit.size, fit.track);
     const m = inkMetrics(ctx, text);
     const cy = (box.y0 + box.y1) / 2;
-    const x = align === 'left'
-      ? box.x0 + m.left
-      : (box.x0 + box.x1) / 2 - m.w / 2 + m.left;
+    const x = inkX(align, box, m) + m.left;
     const y = cy - m.h / 2 + m.asc;
 
     const g = ctx.createLinearGradient(0, cy - m.h / 2, 0, cy + m.h / 2);
@@ -333,6 +386,7 @@ const Compose = (() => {
   // 다른 방식으로 글자를 놓으면 "판별할 때 닮았던 폰트"가 합성에서 달라진다.
   return {
     compose,
-    util: {setFont, inkMetrics, fitSize, fitTracking, guessAlign, removalMask, ALPHA_T, INK_FAR},
+    util: {setFont, inkMetrics, fitSize, fitTracking, guessAlign, alignOf, layout, inkX,
+           removalMask, ALPHA_T, INK_FAR, TRACK_MAX},
   };
 })();
