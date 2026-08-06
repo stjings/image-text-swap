@@ -20,6 +20,7 @@ const Compose = (() => {
   const TRACK_MAX = 0.15;   // 자간 상한 (폰트 크기 대비)
   const INK_FAR = 96;       // 유형 B 잉크 판정: 배경색과의 채널 절대차 합
   const ANCHOR_MAX = 60;    // 배경 보간 시 좌우로 찾아볼 최대 거리(px)
+  const BG_NEAR = 72;       // 배경 앵커로 인정할 대표색과의 최대 색거리
 
   /* ---------- 7-5 글자 제거 ---------- */
 
@@ -66,15 +67,20 @@ const Compose = (() => {
     const bg = block.bgColor || [255, 255, 255];
     const px = (x, y) => (y * W + x) * 4;
 
-    // 좌우로 마스크 밖 배경 픽셀을 찾는다. 못 찾으면 대표색으로 물러선다.
+    // 좌우로 배경 픽셀을 찾는다. 못 찾으면 대표색으로 물러선다.
+    //
+    // '마스크 밖'이라는 조건만으로는 부족하다. 바로 옆 블록의 글자(파란 라벨의 ':')가
+    // 마스크 밖에 있으니 그걸 배경으로 집어 들고, 그 어두운 색에서 오른쪽 배경까지
+    // 선형 보간해 번지는 줄을 그린다. 대표색에 가까운 픽셀만 앵커로 인정한다.
     const anchor = (y, from, dir) => {
       for (let k = 1; k <= ANCHOR_MAX; k++) {
         const x = from + dir * k;
         if (x < 0 || x >= W) break;
-        if (!mask[y * W + x]) {
-          const i = px(x, y);
-          if (d[i + 3] > 200) return [d[i], d[i + 1], d[i + 2]];
-        }
+        if (mask[y * W + x]) continue;
+        const i = px(x, y);
+        if (d[i + 3] <= 200) continue;
+        if (Math.abs(d[i] - bg[0]) + Math.abs(d[i + 1] - bg[1]) + Math.abs(d[i + 2] - bg[2]) > BG_NEAR) continue;
+        return [d[i], d[i + 1], d[i + 2]];
       }
       return null;
     };

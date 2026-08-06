@@ -364,7 +364,7 @@ async function refreshResult() {
     state.result = null;
     state.composeNotes = [];
     renderNotes();
-    showResult(false);
+    showResult(false, {keepSelection: true});
     return;
   }
   await runCompose();
@@ -383,7 +383,7 @@ async function runCompose() {
     state.result = canvas;
     state.composeNotes = notes;
     state.timing = {...(state.timing || {}), compose: Math.round(performance.now() - t0)};
-    showResult(true);
+    showResult(true, {keepSelection: true});
     renderNotes();
     setStatus(null);
   } catch (e) {
@@ -395,9 +395,19 @@ async function runCompose() {
   }
 }
 
-/** 미리보기를 원본/결과 사이에서 바꾼다. 오버레이는 결과 화면에서 숨긴다. */
-function showResult(on) {
+/**
+ * 미리보기를 원본/결과 사이에서 바꾼다.
+ *
+ * 전환은 곧 '비교하겠다'는 뜻이다. 선택된 블록의 테두리가 남아 있으면 정작
+ * 글자를 못 보므로 선택을 푼다.
+ */
+function showResult(on, {keepSelection = false} = {}) {
   if (on && !state.result) return;
+  if (!keepSelection && state.selectedId) {
+    state.selectedId = null;
+    renderBlockList();
+    renderEditor();
+  }
   state.showing = on ? 'result' : 'original';
   const ctx = el.canvas.getContext('2d');
   ctx.clearRect(0, 0, el.canvas.width, el.canvas.height);
@@ -542,13 +552,16 @@ el.overlay.addEventListener('mouseleave', hoverOff);
 
 /* ---------------- 선택·편집 (M3) ---------------- */
 
+// 같은 블록을 다시 누르면 선택을 푼다. 체크를 해제하듯 되돌릴 수단이 있어야 한다.
+const toggleSelect = (id, opts) => selectBlock(id === state.selectedId ? null : id, opts);
+
 el.blockList.addEventListener('click', (e) => {
   const it = e.target.closest('.item');
-  if (it) selectBlock(it.dataset.id, {scroll: false});
+  if (it) toggleSelect(it.dataset.id, {scroll: false});
 });
 el.overlay.addEventListener('click', (e) => {
   const bk = e.target.closest('.bk');
-  if (bk) selectBlock(bk.dataset.id);          // 목록 쪽으로 스크롤해 준다
+  if (bk) toggleSelect(bk.dataset.id);         // 목록 쪽으로 스크롤해 준다
 });
 el.editorClose.addEventListener('click', () => selectBlock(null));
 
@@ -589,6 +602,7 @@ el.regionsBtn.addEventListener('click', () => {
   renderOverlay();
 });
 
+// 버튼으로 전환할 때만 선택을 푼다. 내부 갱신은 편집 맥락을 유지해야 한다.
 el.toggleBtn.addEventListener('click', () => showResult(state.showing !== 'result'));
 el.downloadBtn.addEventListener('click', download);
 el.saveBtn.addEventListener('click', saveBlock);

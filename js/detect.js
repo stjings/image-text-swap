@@ -270,24 +270,35 @@ const Detect = (() => {
     if (parts.length < 2) return [{bbox: box, sig: null}];
     parts.sort((a, b) => a.x0 - b.x0);
 
-    // 색이 비슷한 조각끼리 왼쪽부터 이어 붙인다.
+    // 자격 있는 조각만으로 구간을 세운다.
+    const anchors = parts.filter((p) => p.anchor);
+    if (!anchors.length) return [{bbox: box, sig: null}];
     const runs = [];
-    for (const p of parts) {
+    for (const p of anchors) {
       const last = runs[runs.length - 1];
-      const join = last && (!p.anchor || sigDist(last.sig, p.sig) <= SIG_SPLIT);
-      if (join) {
+      if (last && sigDist(last.sig, p.sig) <= SIG_SPLIT) {
         last.x1 = Math.max(last.x1, p.x1);
-        if (p.anchor) {   // 기준은 자격 있는 조각으로만 갱신한다
-          const t = p.wt / (last.wt + p.wt);
-          last.sig = last.sig.map((v, i) => v + (p.sig[i] - v) * t);
-          last.wt += p.wt;
-        }
-      } else if (p.anchor) {
+        const t = p.wt / (last.wt + p.wt);
+        last.sig = last.sig.map((v, i) => v + (p.sig[i] - v) * t);
+        last.wt += p.wt;
+      } else {
         runs.push({x0: p.x0, x1: p.x1, sig: p.sig.slice(), wt: p.wt});
-      } else if (last) {
-        last.x1 = Math.max(last.x1, p.x1);
       }
     }
+
+    // 자격 없는 조각(쉼표·물결표처럼 키가 작은 것)은 '가로로 가장 가까운' 구간에
+    // 붙인다. 무조건 앞 구간에 붙이면 '기간 : ~8/31' 의 물결표가 파란 라벨에
+    // 딸려 들어가, 값을 고쳐도 물결표만 원본 자리에 남는다.
+    for (const p of parts) {
+      if (p.anchor) continue;
+      let best = null, bd = Infinity;
+      for (const r of runs) {
+        const gap = p.x0 >= r.x1 ? p.x0 - r.x1 : (p.x1 <= r.x0 ? r.x0 - p.x1 : 0);
+        if (gap < bd) { bd = gap; best = r; }
+      }
+      if (best) { best.x0 = Math.min(best.x0, p.x0); best.x1 = Math.max(best.x1, p.x1); }
+    }
+    runs.sort((a, b) => a.x0 - b.x0);
 
     // 작은 조각이 잘못 연 구간이 남을 수 있다. 방향이 가까운 이웃끼리 다시 합친다.
     for (let i = 0; i < runs.length - 1; i++) {

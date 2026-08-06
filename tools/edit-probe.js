@@ -92,8 +92,17 @@ function check(name, ok, detail = '') {
     `${s.shownItems} = ${total} - ${locked}`);
   await page.click('#filterBar button[data-filter="all"]');
 
-  console.log('\n[되돌리기]');
+  console.log('\n[선택 토글]');
+  await page.evaluate((id) => window.__app.selectBlock(id), TARGET);
   await page.click(`.bk[data-id="${TARGET}"]`);
+  check('선택된 블록을 다시 누르면 해제된다',
+    await page.evaluate(() => window.__app.state.selectedId) === null);
+  await page.click(`.bk[data-id="${TARGET}"]`);
+  check('한 번 더 누르면 다시 선택된다',
+    await page.evaluate(() => window.__app.state.selectedId) === TARGET);
+
+  console.log('\n[되돌리기]');
+  await page.evaluate((id) => window.__app.selectBlock(id), TARGET);
   await page.click('#revertBtn');
   s = await snap();
   check('원문으로 되돌아간다', s.block.edited === before && s.block.draft === before);
@@ -112,7 +121,27 @@ function check(name, ok, detail = '') {
     console.log('  (잠긴 블록 없음 — 건너뜀)');
   }
 
+  console.log('\n[비교 화면]');
+  await page.evaluate(async (id) => {
+    const app = window.__app;
+    app.selectBlock(id);
+    app.state.blocks.find((b) => b.id === id).draft = '비교용';
+    await app.saveBlock();
+  }, TARGET);
+  check('저장 직후에는 선택이 유지된다',
+    await page.evaluate(() => window.__app.state.selectedId) === TARGET);
+  await page.click('#toggleBtn');
+  check('원본/결과를 전환하면 선택이 풀린다',
+    await page.evaluate(() => window.__app.state.selectedId) === null);
+  await page.evaluate(() => window.__app.revertBlock && null);
+  await page.evaluate(async (id) => {
+    const app = window.__app;
+    app.selectBlock(id); await app.revertBlock();
+    app.selectBlock(null);
+  }, TARGET);
+
   console.log('\n[영역 표시 토글]');
+  await page.evaluate((id) => window.__app.selectBlock(id), TARGET);
   const shownCount = () => page.evaluate(() => document.querySelectorAll('#overlay .bk').length);
   const nAll = await page.evaluate(() => window.__app.state.blocks.length);
   check('기본은 전체 표시', await shownCount() === nAll, `${await shownCount()}/${nAll}`);
