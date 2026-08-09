@@ -248,6 +248,31 @@ const Compose = (() => {
   }
 
   /**
+   * 유형 B — 글자가 올라앉은 단색 바탕이 좌우로 어디까지 이어지는지.
+   *
+   * `roomFor` 는 **다른 글자 블록**만 본다. 그림은 모른다. 검은 원 배지의
+   * `5명` 을 `10명` 으로 바꿀 때 옆에 글자가 없으니 "948px 비었다"고 판단하는데,
+   * 실제로 글자가 놓일 수 있는 곳은 **원 안쪽 72px** 뿐이다. 더 길게 쓰면
+   * 원 밖 사진 위로 글자가 삐져나간다.
+   *
+   * 블록 세로 중앙 줄을 좌우로 훑어 배경색이 이어지는 데까지를 경계로 잡는다.
+   */
+  function bgExtent(d, W, H, block) {
+    const bg = block.bgColor;
+    if (block.tier !== 'B' || !bg) return null;
+    const y = Math.min(H - 1, Math.max(0, Math.round((block.bbox.y0 + block.bbox.y1) / 2)));
+    const near = (x) => {
+      const i = (y * W + x) * 4;
+      return d[i + 3] > 200
+        && Math.abs(d[i] - bg[0]) + Math.abs(d[i + 1] - bg[1]) + Math.abs(d[i + 2] - bg[2]) < BG_NEAR;
+    };
+    let left = block.bbox.x0, right = block.bbox.x1;
+    while (left > 0 && near(left - 1)) left--;
+    while (right < W && near(right)) right++;
+    return {left, right};
+  }
+
+  /**
    * 정렬 기준으로 실제 쓸 수 있는 폭.
    *
    * 왼쪽 정렬은 오른쪽으로만 자라고, 가운데 정렬은 양쪽으로 자란다 — 가운데는
@@ -397,7 +422,13 @@ const Compose = (() => {
         const size0 = blockSize;
         const track0 = fitTracking(ctx, font, src, size0, box.x1 - box.x0);
 
-        const avail = usableWidth(box, align, roomFor(box, blocks, b.id, W));
+        // 이웃 글자 경계와 바탕이 이어지는 경계 중 좁은 쪽을 쓴다.
+        const nb = roomFor(box, blocks, b.id, W);
+        const bgb = bgExtent(img.data, W, H, b);
+        const bounds = bgb
+          ? {left: Math.max(nb.left, bgb.left), right: Math.min(nb.right, bgb.right)}
+          : nb;
+        const avail = usableWidth(box, align, bounds);
         const fit = resolveOverflow(ctx, font, text, size0, track0, box, avail);
         if (fit.note) notes.push({id: b.id, level: 'warn', text: fit.note});
 
@@ -429,7 +460,7 @@ const Compose = (() => {
   // 다른 방식으로 글자를 놓으면 "판별할 때 닮았던 폰트"가 합성에서 달라진다.
   return {
     compose,
-    util: {setFont, inkMetrics, fitSize, fitTracking, guessAlign, alignOf, layout, inkX, roomFor, usableWidth, resolveOverflow,
+    util: {setFont, inkMetrics, fitSize, fitTracking, guessAlign, alignOf, layout, inkX, roomFor, bgExtent, usableWidth, resolveOverflow,
            removalMask, ALPHA_T, INK_FAR, TRACK_MAX},
   };
 })();

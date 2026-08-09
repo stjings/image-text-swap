@@ -143,6 +143,31 @@ const CASES = [
   check('결과로 되돌아온다',
     await page.evaluate(() => window.__app.state.showing) === 'result');
 
+  // 그림 위 글자는 그림 밖으로 나가면 안 된다. roomFor 는 다른 '글자 블록'만
+  // 보므로 검은 원 배지 옆이 비어 있다고 판단한다 — 실제 자리는 원 안쪽뿐이다.
+  const badge = await page.evaluate(() => {
+    const st = window.__app.state;
+    const {roomFor, usableWidth, bgExtent} = Compose.util;
+    const blk = st.blocks.find((x) => (x.originalText || '').startsWith('추첨') && !x.locked);
+    if (!blk) return null;
+    const line = blk.lines[blk.lines.length - 1].bbox;
+    const nb = roomFor(line, st.blocks, blk.id, st.imageData.width);
+    const bg = bgExtent(st.imageData.data, st.imageData.width, st.imageData.height, blk);
+    const merged = bg ? {left: Math.max(nb.left, bg.left), right: Math.min(nb.right, bg.right)} : nb;
+    return {
+      neighbourOnly: Math.round(usableWidth(line, 'center', nb)),
+      withPatch: Math.round(usableWidth(line, 'center', merged)),
+      patch: bg ? bg.right - bg.left : null,
+    };
+  });
+  if (badge) {
+    console.log(`  배지 — 이웃만 보면 ${badge.neighbourOnly}px, 바탕까지 보면 ${badge.withPatch}px`
+      + ` (원 지름 ${badge.patch}px)`);
+    check('그림 위 글자는 그림 밖으로 못 나간다',
+      badge.withPatch <= badge.patch && badge.withPatch < badge.neighbourOnly / 2,
+      `${badge.neighbourOnly} → ${badge.withPatch}`);
+  }
+
   // ---- 오버플로 (v1.7 재작성) ----
   //
   // 예전에는 넘치면 무조건 자간부터 5% 깎고 폰트를 줄였다. 옆이 비어 있어도
