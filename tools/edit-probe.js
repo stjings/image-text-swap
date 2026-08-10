@@ -87,9 +87,11 @@ function check(name, ok, detail = '') {
   check('수정됨 필터가 1개만 남긴다', s.shownItems === 1, `${s.shownItems}/${total}`);
   await page.click('#filterBar button[data-filter="editable"]');
   s = await snap();
-  const locked = await page.evaluate(() => window.__app.state.blocks.filter((b) => b.locked).length);
-  check('편집 가능 필터가 잠긴 블록을 뺀다', s.shownItems === total - locked,
-    `${s.shownItems} = ${total} - ${locked}`);
+  // 고칠 게 아닌 것은 다 빠져야 한다 — 잠긴 블록과 '그림으로 보이는' 블록.
+  const out = await page.evaluate(() => window.__app.state.blocks
+    .filter((b) => b.locked || window.__app.looksNotText(b)).length);
+  check('편집 가능 필터가 잠긴 블록·그림 블록을 뺀다', s.shownItems === total - out,
+    `${s.shownItems} = ${total} - ${out}`);
   await page.click('#filterBar button[data-filter="all"]');
 
   console.log('\n[선택 토글]');

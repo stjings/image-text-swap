@@ -154,6 +154,8 @@ async function runAnalysis() {
       b.draft = r.text;           // 편집 중인 값
       b.dirty = false;
       b.confidence = r.confidence;
+      b.fixedWords = r.fixedWords || [];
+      b.strokeRatio = r.strokeRatio;
       if (b.id === state.selectedId) renderEditor();
       renderBlockList();
     }
@@ -297,7 +299,9 @@ function renderBlockList() {
 const byId = (id) => state.blocks.find((b) => b.id === id);
 const isUnsaved = (b) => (b.draft ?? '') !== (b.editedText ?? '');
 const visibleBlocks = () => state.blocks.filter((b) => {
-  if (state.filter === 'editable') return !b.locked;
+  // '편집 가능'에서는 그림으로 보이는 블록도 뺀다. 목록을 훑는 목적이
+  // '고칠 것 찾기'이므로 고칠 게 아닌 것은 빠져야 한다.
+  if (state.filter === 'editable') return !b.locked && !looksNotText(b);
   if (state.filter === 'dirty') return b.dirty || isUnsaved(b);
   return true;
 });
@@ -580,10 +584,33 @@ const fmtTrack = (t) => `${t.pct >= 0 ? '+' : ''}${t.pct.toFixed(1)}%`;
  * 뒤로 뺀다. 판정 기준은 계측 항목 중 **고칠 수 없는 것**을 먼저 본다:
  * 자리·크기·간격이 어긋나면 어떤 폰트를 골라도 티가 난다.
  */
+/**
+ * 글자가 아니라 그림일 가능성이 높은가.
+ *
+ * 단색 패치(선물카드·배지) 안의 포크·수저 아이콘이 '배경이 아닌 픽셀'이라 글자로
+ * 검출되고, OCR 은 거기서 `ff`·`has.` 같은 쓰레기를 뱉는다. 두 갈래로 거른다.
+ *   1. 신뢰도가 낮고 한글이 하나도 없다 (`ont`·`ff`·`has.`)
+ *   2. 획 굵기가 고르다 — 그림의 특징 (`소년` 으로 읽힌 포크 모양)
+ * 실측(샘플 B): 이 규칙이 쓰레기 5블록을 다 잡고 진짜 글자는 하나도 안 잡는다.
+ */
+const NOTEXT_CONF = 55, NOTEXT_STROKE = 2.0, NOTEXT_STROKE_CONF = 70;
+function looksNotText(b) {
+  if (typeof b.confidence !== 'number' || !('originalText' in b)) return false;
+  const t = b.originalText || '';
+  const hangul = (t.match(/[가-힣]/g) || []).length;
+  if (b.confidence < NOTEXT_CONF && hangul === 0 && t.replace(/\s/g, '').length <= 12) return true;
+  return typeof b.strokeRatio === 'number'
+    && b.strokeRatio < NOTEXT_STROKE && b.confidence < NOTEXT_STROKE_CONF;
+}
+
 function safety(b) {
   if (b.locked) {
     return {key: 'locked', label: '편집 불가', cls: 'bad',
             text: '배경이 복잡해 이 블록은 바꿀 수 없습니다.'};
+  }
+  if (looksNotText(b)) {
+    return {key: 'notext', label: '글자 아님', cls: 'dimchip',
+            text: '글자가 아니라 그림일 가능성이 높습니다. 읽어낸 문구가 뜻이 없다면 그냥 두세요.'};
   }
   const m = typoFor(b);
   if (!m) return {key: 'wait', label: '대기', cls: 'dimchip', text: ''};
@@ -949,5 +976,5 @@ document.addEventListener('keydown', (e) => {
   }
 });
 
-window.__app = {state, loadFile, runAnalysis, selectBlock, saveBlock, revertBlock,
+window.__app = {state, loadFile, runAnalysis, selectBlock, saveBlock, revertBlock, looksNotText,
                 runCompose, showResult, fontFor, download, outputName};

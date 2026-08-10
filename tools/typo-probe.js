@@ -142,6 +142,36 @@ const check = (name, ok, detail = '') => {
     centers.every((d) => d.reported >= 0.05),
     centers.map((d) => `${d.id} ${d.reported.toFixed(1)}px`).join(' ') || '가운데 블록 없음');
 
+  // ---- OCR 교정 (v1.8) ----
+  console.log('\n[한글↔라틴 교정 · 그림 걸러내기]');
+  await page.goto(`http://127.0.0.1:${PORT}/index.html`);
+  await page.setInputFiles('#fileInput', path.join(ROOT, 'assets/sample-complex.png'));
+  await page.waitForFunction(() => window.__app.state.imageData && !window.__app.state.analyzing,
+    null, {timeout: 300000});
+  const ocr = await page.evaluate(() => ({
+    fixed: window.__app.state.blocks.flatMap((b) => (b.fixedWords || []).map((f) => `${b.id} ${f}`)),
+    notext: window.__app.state.blocks.filter((b) => window.__app.looksNotText(b)).map((b) => b.id),
+    texts: Object.fromEntries(window.__app.state.blocks.map((b) => [b.id, b.originalText || ''])),
+  }));
+  console.log(`  교정: ${ocr.fixed.join('  |  ') || '없음'}`);
+  console.log(`  그림으로 판정: ${ocr.notext.join(' ') || '없음'}`);
+
+  // kor+eng 는 한글을 라틴으로 읽는 일이 잦다. 실측: 핵집→“HS, 핵심집약→BYU
+  check('한글이 라틴으로 잘못 읽힌 것을 고친다',
+    /핵집/.test(ocr.texts.b1) && /핵심집약/.test(ocr.texts.b18),
+    `b1 "${ocr.texts.b1.slice(0, 8)}" · b18 "${ocr.texts.b18.slice(0, 12)}"`);
+  // 진짜 영문은 건드리면 안 된다
+  check('진짜 영문은 그대로 둔다',
+    /EVENT/.test(ocr.texts.b0) && /UPGRADE/.test(ocr.texts.b18) && /UP!/.test(ocr.texts.b19),
+    `${ocr.texts.b0} / UPGRADE ${/UPGRADE/.test(ocr.texts.b18)} / UP! ${/UP!/.test(ocr.texts.b19)}`);
+  // 선물카드의 포크·수저 아이콘이 글자로 검출돼 쓰레기를 뱉는다
+  check('그림 블록 5개를 다 걸러낸다',
+    ['b4', 'b5', 'b6', 'b8', 'b9'].every((id) => ocr.notext.includes(id)),
+    ocr.notext.join(' '));
+  check('진짜 글자를 그림으로 오인하지 않는다',
+    !['b0', 'b1', 'b2', 'b3', 'b13', 'b14', 'b16', 'b18', 'b19']
+      .some((id) => ocr.notext.includes(id)), ocr.notext.join(' '));
+
   // ---- 계측과 합성이 같은 값을 쓰는가 ----
   console.log('\n[계측 = 합성]');
   const same = await page.evaluate(() => {
@@ -207,7 +237,7 @@ const check = (name, ok, detail = '') => {
   for (const c of chips) console.log(`  ${c.id.padEnd(4)} ${c.chip}`);
   check('모든 블록에 판정이 붙는다', chips.every((c) => c.chip), JSON.stringify(chips));
   check('판정은 정해진 말만 쓴다',
-    chips.every((c) => ['안전', '글꼴 다름', '문구 확인', '위험', '편집 불가', '대기'].includes(c.chip)),
+    chips.every((c) => ['안전', '글꼴 다름', '문구 확인', '위험', '편집 불가', '글자 아님', '대기'].includes(c.chip)),
     [...new Set(chips.map((c) => c.chip))].join(' / '));
   check('유형 문자(A/B/C)를 그대로 보여 주지 않는다',
     !chips.some((c) => /^[ABC]$/.test(c.chip)));
