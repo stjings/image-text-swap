@@ -95,6 +95,8 @@ async function loadFile(file) {
 
   el.dropzone.hidden = true;
   el.viewport.hidden = false;
+  // 상자에 원본 비율을 걸어 두면 CSS 가 가로·세로 양쪽에 맞춰 줄여 준다.
+  el.viewport.style.aspectRatio = `${w} / ${h}`;
   el.notes.hidden = true;
   el.editor.hidden = true;
   el.downloadBtn.disabled = true;

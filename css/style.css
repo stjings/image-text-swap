@@ -96,7 +96,14 @@ body {
   display: grid; grid-template-columns: minmax(0, 1fr) 360px;
   gap: 16px; padding: 16px;
 }
-@media (max-width: 900px) { .layout { grid-template-columns: minmax(0, 1fr); overflow-y: auto; } }
+@media (max-width: 900px) {
+  .layout { grid-template-columns: minmax(0, 1fr); overflow-y: auto; }
+  /* 한 칸으로 접히면 패널 높이가 내용을 따라가 스테이지가 납작해진다.
+     높이를 못 박아야 미리보기가 제 크기를 갖는다.
+     `.pane { min-height: 0 }` 이 뒤에 나오므로 선택자를 한 단계 더 좁힌다 —
+     미디어 쿼리는 우선순위를 올려 주지 않는다. */
+  .pane.pane-main { min-height: 70vh; }
+}
 
 .pane {
   display: flex; flex-direction: column; min-height: 0;
@@ -156,9 +163,16 @@ body {
 .dz-note { margin: 0; font-size: 11px; opacity: .8; }
 
 /* 뷰포트 — 캔버스는 원본 해상도, 표시만 축소한다.
- * 오버레이를 %로 배치하면 확대/축소와 무관하게 좌표가 맞는다. */
-.viewport { position: relative; max-width: 100%; line-height: 0; }
-.viewport canvas { display: block; max-width: 100%; height: auto; }
+ * 오버레이를 %로 배치하면 확대/축소와 무관하게 좌표가 맞는다.
+ *
+ * 가로만 맞추면 세로가 긴 이미지가 잘린다(실측: 스테이지 819px 에 캔버스 921px).
+ * 상자에 원본 비율을 걸고 가로·세로를 함께 100% 로 제한하면 항상 통째로 들어온다.
+ * 비율은 이미지를 열 때 app.js 가 넣는다 — 그래야 캔버스 크기와 무관하게 맞는다. */
+.viewport {
+  position: relative; line-height: 0;
+  max-width: 100%; max-height: 100%;
+}
+.viewport canvas { display: block; width: 100%; height: 100%; }
 .overlay { position: absolute; inset: 0; pointer-events: none; }
 
 /* ---------- 하단바 (고정) — 이미지 정보 ---------- */

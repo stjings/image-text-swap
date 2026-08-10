@@ -165,6 +165,33 @@ function check(name, ok, detail = '') {
   await page.click('#editorClose');
   await page.click('#regionsBtn');
 
+  // 미리보기가 잘리지 않는가 (v1.8).
+  // 캔버스에 max-width 만 걸려 있어 세로가 긴 이미지가 잘렸다.
+  // 실측: 스테이지 819px 에 캔버스 921px — 위아래가 화면 밖으로 나갔다.
+  console.log('\n[미리보기 맞춤]');
+  for (const [vw, vh] of [[1600, 1000], [1400, 820], [820, 1000]]) {
+    await page.setViewportSize({width: vw, height: vh});
+    await page.waitForTimeout(120);
+    const m = await page.evaluate(() => {
+      const st = document.getElementById('stage'), cv = document.getElementById('preview');
+      const sr = st.getBoundingClientRect(), cr = cv.getBoundingClientRect();
+      return {
+        fits: cr.top >= sr.top - 1 && cr.bottom <= sr.bottom + 1
+           && cr.left >= sr.left - 1 && cr.right <= sr.right + 1,
+        ratio: cr.height ? cr.width / cr.height : 0,
+        want: cv.width / cv.height,
+        cw: Math.round(cr.width), ch: Math.round(cr.height),
+        sw: Math.round(sr.width), sh: Math.round(sr.height),
+      };
+    });
+    check(`${vw}x${vh} 에서 이미지가 통째로 보인다`, m.fits,
+      `캔버스 ${m.cw}x${m.ch} / 스테이지 ${m.sw}x${m.sh}`);
+    check(`${vw}x${vh} 에서 비율이 안 망가진다`, Math.abs(m.ratio - m.want) < 0.02,
+      `${m.ratio.toFixed(3)} vs ${m.want.toFixed(3)}`);
+  }
+  await page.setViewportSize({width: 1280, height: 900});
+  await page.waitForTimeout(120);
+
   console.log('\n[키보드]');
   await page.click('.topbar h1');           // 중립 영역 — 선택을 건드리지 않는다
   await page.click('#blockList .item:nth-child(1)');
